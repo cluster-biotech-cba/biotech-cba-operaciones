@@ -1,0 +1,10 @@
+# Archivos del Sistema y Editores
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/
+
+# Temporales de Windows
+Desktop.ini
+$RECYCLE.BIN/

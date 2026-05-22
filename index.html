@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Consola de Cobranzas | Clúster de Biotecnología de Córdoba</title>
+    
+    <!-- Google Fonts: Outfit -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- CSS Estilos Custom -->
+    <link rel="stylesheet" href="style.css">
+    
+    <!-- FontAwesome para iconos modernos -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="dark-theme">
+    
+    <!-- Contenedor Principal (App Glassmorphic) -->
+    <div class="app-container">
+        
+        <!-- BARRA LATERAL (Sidebar) -->
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="logo-icon">
+                    <i class="fa-solid fa-dna fa-spin-slow"></i>
+                </div>
+                <div class="brand-text">
+                    <h1>CLÚSTER BIOTECH</h1>
+                    <span>CÓRDOBA · ARGENTINA</span>
+                </div>
+            </div>
+            
+            <nav class="nav-menu">
+                <a href="#" class="nav-item active" data-tab="cobranzas">
+                    <i class="fa-solid fa-receipt"></i> Cobranzas
+                </a>
+                <a href="#" class="nav-item" data-tab="socios">
+                    <i class="fa-solid fa-users"></i> Gestión Socios
+                </a>
+                <a href="#" class="nav-item" data-tab="config">
+                    <i class="fa-solid fa-sliders"></i> Conexión Nube
+                </a>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <div class="user-profile">
+                    <div class="avatar">
+                        <i class="fa-solid fa-user-tie"></i>
+                    </div>
+                    <div class="user-info">
+                        <p class="user-name">Operaciones</p>
+                        <p class="user-role">Sebastián & Pablo</p>
+                    </div>
+                </div>
+            </div>
+        </aside>
+        
+        <!-- CONTENIDO PRINCIPAL -->
+        <main class="main-content">
+            
+            <!-- HEADER DE LA PÁGINA -->
+            <header class="main-header">
+                <div class="header-title">
+                    <h2 id="page-title">Gestión de Cobranzas y Cuotas</h2>
+                    <p class="subtitle">Sincronizado en tiempo real con Google Sheets</p>
+                </div>
+                
+                <div class="header-actions">
+                    <div class="status-indicator disconnected" id="connection-status">
+                        <span class="dot"></span>
+                        <span class="status-text">Sin Conexión</span>
+                    </div>
+                    <button class="btn btn-icon-only" id="theme-toggle" title="Cambiar Tema">
+                        <i class="fa-solid fa-moon"></i>
+                    </button>
+                    <button class="btn btn-primary" id="btn-sync">
+                        <i class="fa-solid fa-arrows-rotate"></i> Sincronizar Sheets
+                    </button>
+                </div>
+            </header>
+            
+            <!-- PANEL 1: COBRANZAS (POR DEFECTO) -->
+            <section id="tab-cobranzas" class="tab-panel active">
+                
+                <!-- DASHBOARD CARDS / KPIs -->
+                <div class="kpi-grid">
+                    <div class="kpi-card">
+                        <div class="kpi-icon color-blue">
+                            <i class="fa-solid fa-money-bill-wave"></i>
+                        </div>
+                        <div class="kpi-info">
+                            <h3>Facturación Proyectada</h3>
+                            <p class="kpi-value" id="kpi-total">$0</p>
+                            <span class="kpi-sub" id="kpi-total-sub">Cargando datos...</span>
+                        </div>
+                    </div>
+                    
+                    <div class="kpi-card">
+                        <div class="kpi-icon color-green">
+                            <i class="fa-solid fa-circle-check"></i>
+                        </div>
+                        <div class="kpi-info">
+                            <h3>Total Recaudado</h3>
+                            <p class="kpi-value" id="kpi-recaudado">$0</p>
+                            <span class="kpi-sub color-green-text" id="kpi-recaudado-pct">0% del total</span>
+                        </div>
+                    </div>
+                    
+                    <div class="kpi-card">
+                        <div class="kpi-icon color-amber">
+                            <i class="fa-solid fa-hourglass-half"></i>
+                        </div>
+                        <div class="kpi-info">
+                            <h3>Pendiente de Pago</h3>
+                            <p class="kpi-value" id="kpi-pendiente">$0</p>
+                            <span class="kpi-sub" id="kpi-pendiente-sub">0 socios pendientes</span>
+                        </div>
+                    </div>
+
+                    <div class="kpi-card">
+                        <div class="kpi-icon color-red">
+                            <i class="fa-solid fa-triangle-exclamation"></i>
+                        </div>
+                        <div class="kpi-info">
+                            <h3>En Mora Crítica</h3>
+                            <p class="kpi-value" id="kpi-mora">$0</p>
+                            <span class="kpi-sub color-red-text" id="kpi-mora-sub">0 socios en mora</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CONTROLES Y FILTROS -->
+                <div class="control-bar card">
+                    <div class="search-box">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                        <input type="text" id="search-socio" placeholder="Buscar socio...">
+                    </div>
+                    <div class="filter-group">
+                        <button class="filter-btn active" data-filter="todos">Todos</button>
+                        <button class="filter-btn" data-filter="Pendiente">Pendientes</button>
+                        <button class="filter-btn" data-filter="Vencido">En Mora</button>
+                        <button class="filter-btn" data-filter="Pagado">Pagados</button>
+                    </div>
+                    <div class="period-selector">
+                        <label for="periodo-filtro">Período:</label>
+                        <input type="month" id="periodo-filtro" value="2026-05">
+                    </div>
+                </div>
+
+                <!-- LISTA DE SOCIOS PARA COBRANZA -->
+                <div class="card overflow-x">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Socio / Razón Social</th>
+                                <th>Contacto</th>
+                                <th>Tipo</th>
+                                <th>Cuota</th>
+                                <th>Último Mes Pago</th>
+                                <th>Estado</th>
+                                <th>Acciones Rápidas</th>
+                            </tr>
+                        </thead>
+                        <tbody id="lista-cobranzas-body">
+                            <tr>
+                                <td colspan="7" class="loading-state">
+                                    <i class="fa-solid fa-spinner fa-spin"></i> Cargando base de datos en la nube...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+            
+            <!-- PANEL 2: GESTIÓN DE SOCIOS -->
+            <section id="tab-socios" class="tab-panel">
+                <div class="panel-header-actions">
+                    <h3>Base de Miembros del Clúster</h3>
+                    <button class="btn btn-primary" id="btn-nuevo-socio">
+                        <i class="fa-solid fa-plus"></i> Registrar Nuevo Socio
+                    </button>
+                </div>
+                
+                <div class="card overflow-x mt-4">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Socio / Razón Social</th>
+                                <th>Tipo de Membresía</th>
+                                <th>Valor Cuota ($)</th>
+                                <th>Email Administración</th>
+                                <th>Contacto Administrativo</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="lista-socios-body">
+                            <!-- Inyectado dinámicamente -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+            
+            <!-- PANEL 3: CONFIGURACIÓN DE CONEXIÓN -->
+            <section id="tab-config" class="tab-panel">
+                <div class="card max-w-md">
+                    <h3>Sincronización con Google Workspace</h3>
+                    <p class="description">Para que los datos se guarden en tu Google Sheet y las facturas se busquen en tu Drive, debes conectar tu Web App de Google Apps Script.</p>
+                    
+                    <form id="form-config-cloud" class="mt-4">
+                        <div class="form-group">
+                            <label for="gas-endpoint-url">URL de la Web App de Apps Script:</label>
+                            <input type="url" id="gas-endpoint-url" placeholder="https://script.google.com/macros/s/.../exec" required>
+                            <span class="form-help">Pega aquí la dirección obtenida al "Implementar como Aplicación Web" en Apps Script.</span>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="drive-folder-id">ID de Carpeta de Facturas en Google Drive (Opcional):</label>
+                            <input type="text" id="drive-folder-id" placeholder="1aBcdEFGHiJkLMNoPqRStUvWxYz...">
+                            <span class="form-help">Opcional. Si lo dejas vacío, buscará las facturas en todo tu Google Drive.</span>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary mt-2">
+                            <i class="fa-solid fa-circle-check"></i> Guardar y Probar Conexión
+                        </button>
+                    </form>
+                    
+                    <div class="connection-log mt-4" id="config-conn-log">
+                        <!-- Logs de prueba de conexión -->
+                    </div>
+                </div>
+            </section>
+            
+        </main>
+    </div>
+    
+    <!-- ====================================================================
+         MODAL: GENERADOR DE CORREOS / ENVIADOR
+         ==================================================================== -->
+    <div class="modal" id="modal-email-generator">
+        <div class="modal-content large">
+            <div class="modal-header">
+                <div class="title-with-icon">
+                    <i class="fa-solid fa-paper-plane text-blue"></i>
+                    <h2>Generador de Notificación de Cobranza</h2>
+                </div>
+                <button class="modal-close" id="btn-close-email-modal">&times;</button>
+            </div>
+            <div class="modal-body modal-split">
+                <!-- Lado Izquierdo: Selección y Parámetros -->
+                <div class="split-left">
+                    <div class="form-group">
+                        <label>Socio Seleccionado:</label>
+                        <p class="meta-info-highlight" id="mail-socio-nombre">-</p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Email de Destino:</label>
+                        <p class="meta-info" id="mail-socio-email">-</p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Período de Facturación:</label>
+                        <p class="meta-info" id="mail-socio-periodo">-</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="select-aviso-nivel">Tipo de Mensaje / Estado de Mora:</label>
+                        <select id="select-aviso-nivel">
+                            <option value="1">1° Aviso: Recordatorio Amistoso (Cuota al día)</option>
+                            <option value="2">2° Aviso: Recordatorio Institucional (Vencido)</option>
+                            <option value="3">3° Aviso: Contacto Directo / Llamada (Deuda Crítica)</option>
+                        </select>
+                    </div>
+
+                    <div class="factura-search-card mt-3">
+                        <h4><i class="fa-solid fa-file-pdf"></i> Adjunto de Factura (Google Drive)</h4>
+                        <p class="description">El backend buscará automáticamente un PDF con el nombre del socio y el período.</p>
+                        <div class="search-indicator" id="factura-search-status">
+                            <i class="fa-solid fa-circle-question color-amber-text"></i>
+                            <span>Búsqueda automática al disparar borrador</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Lado Derecho: Vista Previa Real-Time del Correo -->
+                <div class="split-right">
+                    <div class="preview-header">
+                        <h4>Vista Previa del Correo Electrónico</h4>
+                        <div class="actions">
+                            <button class="btn btn-secondary btn-small" id="btn-copy-preview" title="Copiar cuerpo">
+                                <i class="fa-solid fa-copy"></i> Copiar Cuerpo
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="preview-box">
+                        <div class="preview-field">
+                            <strong>Asunto:</strong> <span id="preview-asunto">-</span>
+                        </div>
+                        <div class="preview-body" id="preview-cuerpo">
+                            <!-- Inyectado dinámicamente -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="btn-cancel-email-modal">Cerrar</button>
+                <button class="btn btn-primary" id="btn-action-gmail">
+                    <i class="fa-solid fa-envelope-open-text"></i> Crear Borrador en Gmail
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- ====================================================================
+         MODAL: REGISTRAR SOCIO / EDITAR SOCIO
+         ==================================================================== -->
+    <div class="modal" id="modal-socio">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modal-socio-title">Registrar Socio</h2>
+                <button class="modal-close" id="btn-close-socio-modal">&times;</button>
+            </div>
+            <form id="form-socio">
+                <input type="hidden" id="socio-id">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="socio-nombre">Nombre de la Empresa o Entidad:</label>
+                        <input type="text" id="socio-nombre" placeholder="Ej: Laboratorio Lamarx S.A." required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="socio-tipo">Tipo de Socio:</label>
+                        <select id="socio-tipo">
+                            <option value="Fin de Lucro">Con Fin de Lucro (Paga cuota)</option>
+                            <option value="Sin Fin de Lucro">Sin Fin de Lucro (Exento por ahora)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="socio-cuota">Monto de la Cuota Mensual ($ ARS):</label>
+                        <input type="number" id="socio-cuota" min="0" placeholder="Ej: 35000" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="socio-email">Email de Contacto (Administrativo):</label>
+                        <input type="email" id="socio-email" placeholder="Ej: administracion@empresa.com.ar" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="socio-contacto-nombre">Nombre de la Persona de Contacto:</label>
+                        <input type="text" id="socio-contacto-nombre" placeholder="Ej: Lic. Juan Pérez" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="socio-ultimo-pago">Último Período Pagado (YYYY-MM):</label>
+                        <input type="month" id="socio-ultimo-pago" value="2026-04">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="socio-estado">Estado Actual de Cuenta:</label>
+                        <select id="socio-estado">
+                            <option value="Pagado">Pagado</option>
+                            <option value="Pendiente">Pendiente</option>
+                            <option value="Vencido">En Mora (Vencido)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" id="btn-cancel-socio-modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" id="btn-save-socio">Guardar Socio</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- JS Lógica Cliente -->
+    <script src="app.js"></script>
+</body>
+</html>
