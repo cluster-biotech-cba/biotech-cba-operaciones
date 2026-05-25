@@ -9,22 +9,61 @@ const HOJA_SOCIOS = "Socios";
 const HOJA_CATEGORIAS = "Categorias";
 const HOJA_HISTORIAL = "HistorialPagos";
 const HOJA_CRM = "CRM_Prospectos";
+const HOJA_USUARIOS = "Usuarios";
 
 // ID DE LA CARPETA DE GOOGLE DRIVE DONDE ESTÁN LOS PDFS DE LAS FACTURAS
-// Coloca aquí el ID de tu carpeta de Drive para acotar la búsqueda y hacerla ultra rápida
 const CARPETA_FACTURAS_ID = ""; 
+
+/**
+ * Valida las credenciales de un usuario contra la hoja de Usuarios
+ */
+function validarCredenciales(usuario, clave) {
+  if (!usuario || !clave) {
+    return { success: false, error: "Usuario o clave ausentes." };
+  }
+  
+  try {
+    const sheet = obtenerOCrearHoja(HOJA_USUARIOS);
+    const data = sheet.getDataRange().getValues();
+    
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      if (row[0].toString().trim().toLowerCase() === usuario.toString().trim().toLowerCase() && 
+          row[1].toString().trim() === clave.toString().trim()) {
+        return { 
+          success: true, 
+          user: { 
+            usuario: row[0].toString(), 
+            rol: row[2].toString(), // Administrador o Consulta
+            nombre: row[3].toString() 
+          } 
+        };
+      }
+    }
+    return { success: false, error: "Usuario o contraseña incorrectos." };
+  } catch (err) {
+    return { success: false, error: "Error al validar acceso: " + err.toString() };
+  }
+}
 
 /**
  * Recibe las solicitudes HTTP GET desde la aplicación local (SPA)
  */
 function doGet(e) {
-  const origin = (e && e.parameter && e.parameter.origin) ? e.parameter.origin : "*";
   let output;
   
   try {
     const action = (e && e.parameter) ? e.parameter.action : "";
+    const usuario = (e && e.parameter) ? e.parameter.usuario : "";
+    const clave = (e && e.parameter) ? e.parameter.clave : "";
     
-    if (action === "getSocios") {
+    // Todas las lecturas de base de datos requieren autenticación
+    const auth = validarCredenciales(usuario, clave);
+    
+    if (!auth.success) {
+      output = JSON.stringify({ success: false, error: "No autorizado. Inicie sesión nuevamente." });
+    } 
+    else if (action === "getSocios") {
       output = JSON.stringify({ success: true, data: obtenerSociosRelacionales() });
     } 
     else if (action === "getCategorias") {
@@ -37,35 +76,56 @@ function doGet(e) {
     output = JSON.stringify({ success: false, error: error.toString() });
   }
   
+  // Google automáticamente añade las cabeceras CORS correctas a TextOutput
   return ContentService.createTextOutput(output)
-    .setMimeType(ContentService.MimeType.JSON)
-    .setHeader("Access-Control-Allow-Origin", origin)
-    .setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-    .setHeader("Access-Control-Allow-Headers", "Content-Type");
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 /**
  * Recibe las solicitudes HTTP POST (creación de borradores, registros de pago)
  */
 function doPost(e) {
-  const origin = (e && e.parameter && e.parameter.origin) ? e.parameter.origin : "*";
   let output;
   
   try {
     const postData = JSON.parse(e.postData.contents);
     const action = postData.action;
+    const usuario = postData.usuario;
+    const clave = postData.clave;
     
-    if (action === "registrarPago") {
-      const result = registrarPagoSocio(postData.socioId, postData.periodo, postData.monto);
-      output = JSON.stringify({ success: true, data: result });
+    // Validar sesión
+    const auth = validarCredenciales(usuario, clave);
+    
+    if (!auth.success) {
+      output = JSON.stringify({ success: false, error: "No autorizado: " + auth.error });
+    } 
+    else if (action === "login") {
+      // Si llega hasta aquí, las credenciales son válidas
+      output = JSON.stringify({ success: true, user: auth.user });
+    }
+    else if (action === "registrarPago") {
+      if (auth.user.rol !== "Administrador") {
+        output = JSON.stringify({ success: false, error: "Operación denegada. Se requiere rol de Administrador." });
+      } else {
+        const result = registrarPagoSocio(postData.socioId, postData.periodo, postData.monto);
+        output = JSON.stringify({ success: true, data: result });
+      }
     } 
     else if (action === "generarBorrador") {
-      const result = generarBorradorGmail(postData.socioId, postData.periodo, postData.nivelAviso);
-      output = JSON.stringify({ success: true, data: result });
+      if (auth.user.rol !== "Administrador") {
+        output = JSON.stringify({ success: false, error: "Operación denegada. Se requiere rol de Administrador." });
+      } else {
+        const result = generarBorradorGmail(postData.socioId, postData.periodo, postData.nivelAviso);
+        output = JSON.stringify({ success: true, data: result });
+      }
     } 
     else if (action === "guardarSocio") {
-      const result = guardarOEditarSocio(postData.socio);
-      output = JSON.stringify({ success: true, data: result });
+      if (auth.user.rol !== "Administrador") {
+        output = JSON.stringify({ success: false, error: "Operación denegada. Se requiere rol de Administrador." });
+      } else {
+        const result = guardarOEditarSocio(postData.socio);
+        output = JSON.stringify({ success: true, data: result });
+      }
     }
     else {
       output = JSON.stringify({ success: false, error: "Acción no reconocida en POST." });
@@ -75,20 +135,14 @@ function doPost(e) {
   }
   
   return ContentService.createTextOutput(output)
-    .setMimeType(ContentService.MimeType.JSON)
-    .setHeader("Access-Control-Allow-Origin", origin)
-    .setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-    .setHeader("Access-Control-Allow-Headers", "Content-Type");
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 /**
  * Permite manejar las llamadas previas de CORS (OPTIONS)
  */
 function doOptions(e) {
-  return ContentService.createTextOutput("")
-    .setHeader("Access-Control-Allow-Origin", "*")
-    .setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-    .setHeader("Access-Control-Allow-Headers", "Content-Type");
+  return ContentService.createTextOutput("");
 }
 
 /**
@@ -411,6 +465,12 @@ function obtenerOCrearHoja(nombreHoja) {
       sheet.appendRow(["LEAD-001", "Biocombustibles Cba", "Mapeado", "contacto@biocba.com", "Ing. Roberto Paz", new Date()]);
       sheet.appendRow(["LEAD-002", "AgroBiotech S.A.", "Contacto Inicial", "ventas@agrobiotech.com", "Dra. Laura Rossi", new Date()]);
       sheet.appendRow(["LEAD-003", "Genética Semillas", "Reunión", "info@geneticasemillas.com", "Lic. Esteban Juárez", new Date()]);
+    }
+    else if (nombreHoja === HOJA_USUARIOS) {
+      sheet.appendRow(["Usuario", "Clave", "Rol", "Nombre"]);
+      sheet.getRange("A1:D1").setFontWeight("bold").setBackground("#cbd5e1");
+      sheet.appendRow(["admin", "admin123", "Administrador", "Sebastián"]);
+      sheet.appendRow(["consulta", "consulta123", "Consulta", "Pablo (Lectura)"]);
     }
   }
   return sheet;

@@ -18,6 +18,35 @@
 </head>
 <body class="light-theme">
     
+    <!-- PANTALLA DE INICIO DE SESIÓN (LOGIN SCREEN OVERLAY) -->
+    <div class="login-overlay active" id="login-overlay">
+        <div class="login-card">
+            <div class="login-header">
+                <div class="login-logo">
+                    <i class="fa-solid fa-dna fa-spin-slow"></i>
+                </div>
+                <h2>Suite de Operaciones</h2>
+                <p>Clúster de Biotecnología de Córdoba</p>
+            </div>
+            <form id="form-login">
+                <div class="form-group">
+                    <label for="login-username"><i class="fa-solid fa-user"></i> Usuario</label>
+                    <input type="text" id="login-username" placeholder="Ingrese su usuario" required autocomplete="username">
+                </div>
+                <div class="form-group">
+                    <label for="login-password"><i class="fa-solid fa-lock"></i> Contraseña</label>
+                    <input type="password" id="login-password" placeholder="Ingrese su contraseña" required autocomplete="current-password">
+                </div>
+                <div class="login-error" id="login-error-msg" style="display: none;">
+                    <i class="fa-solid fa-triangle-exclamation"></i> <span>Credenciales incorrectas</span>
+                </div>
+                <button type="submit" class="btn btn-primary" id="btn-login-submit" style="width: 100%; margin-top: 1rem;">
+                    <i class="fa-solid fa-arrow-right-to-bracket"></i> Iniciar Sesión
+                </button>
+            </form>
+        </div>
+    </div>
+    
     <!-- Contenedor Principal (App Glassmorphic) -->
     <div class="app-container">
         
@@ -48,13 +77,16 @@
             <div class="sidebar-footer">
                 <div class="user-profile">
                     <div class="avatar">
-                        <i class="fa-solid fa-user-tie"></i>
+                        <i class="fa-solid fa-user-tie" id="user-avatar-icon"></i>
                     </div>
                     <div class="user-info">
-                        <p class="user-name">Operaciones</p>
-                        <p class="user-role">Sebastián & Pablo</p>
+                        <p class="user-name" id="display-user-name">Operaciones</p>
+                        <p class="user-role" id="display-user-role">Sebastián & Pablo</p>
                     </div>
                 </div>
+                <button class="btn-logout" id="btn-logout" title="Cerrar Sesión">
+                    <i class="fa-solid fa-power-off"></i>
+                </button>
             </div>
         </aside>
         
@@ -343,8 +375,13 @@
                     </div>
                     
                     <div class="form-group">
-                        <label for="socio-cuota">Monto de la Cuota Mensual ($ ARS):</label>
-                        <input type="number" id="socio-cuota" min="0" placeholder="Ej: 35000" required>
+                        <label for="socio-categoria">Categoría de Membresía / Cuota:</label>
+                        <select id="socio-categoria">
+                            <option value="Premium">Premium ($50.000)</option>
+                            <option value="Estándar">Estándar ($35.000)</option>
+                            <option value="Startup">Startup ($25.000)</option>
+                            <option value="Exento">Exento ($0 - Sin Fin de Lucro)</option>
+                        </select>
                     </div>
                     
                     <div class="form-group">

@@ -6,8 +6,10 @@
  */
 
 // ESTADO GLOBAL DE LA APLICACIÓN
+const GAS_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbxMWDgndw9SUB3pzn5qqdcv47jChgM-_KSNxD61oqdJaiAo03-pFyVi0REbQzsg5z2k/exec";
+
 let CONFIG = {
-    gasUrl: localStorage.getItem("gas_url") || "",
+    gasUrl: localStorage.getItem("gas_url") || GAS_URL_DEFAULT,
     driveFolderId: localStorage.getItem("drive_folder_id") || ""
 };
 
@@ -15,6 +17,7 @@ let SOCIOS = [];
 let FILTRO_ESTADO = "todos";
 let FILTRO_BUSQUEDA = "";
 let PERIODO_ACTUAL = "2026-05";
+let CURRENT_USER = JSON.parse(localStorage.getItem("current_user")) || null;
 
 // Datos locales "fallback" para demostración si no hay URL en la nube conectada
 const SOCIOS_DEMO = [
@@ -116,7 +119,7 @@ function inicializarApp() {
 
     // EVENTO SINCRONIZAR
     document.getElementById("btn-sync").addEventListener("click", () => {
-        cargarSociosDeNube();
+        if (validarSesion()) cargarSociosDeNube();
     });
 
     // FORMULARIO CONFIGURACION NUBE
@@ -154,8 +157,25 @@ function inicializarApp() {
     document.getElementById("btn-copy-preview").addEventListener("click", copiarCuerpoCorreo);
     document.getElementById("btn-action-gmail").addEventListener("click", dispararBorradorGmail);
 
+    // EVENTOS LOGIN Y LOGOUT
+    const formLogin = document.getElementById("form-login");
+    if (formLogin) {
+        formLogin.addEventListener("submit", manejarLogin);
+    }
+    const btnLogout = document.getElementById("btn-logout");
+    if (btnLogout) {
+        btnLogout.addEventListener("click", manejarLogout);
+    }
+
     // Cargar datos iniciales
-    cargarSociosDeNube();
+    if (validarSesion()) {
+        cargarSociosDeNube();
+    } else {
+        // Cargar datos locales de demostración mientras está la pantalla de login de fondo
+        SOCIOS = [...SOCIOS_DEMO];
+        renderizarTablas();
+        calcularKPIs();
+    }
 }
 
 /**
@@ -191,7 +211,8 @@ async function cargarSociosDeNube() {
     }
 
     try {
-        const response = await fetch(`${CONFIG.gasUrl}?action=getSocios`);
+        const userQuery = CURRENT_USER ? `&usuario=${encodeURIComponent(CURRENT_USER.usuario)}&clave=${encodeURIComponent(CURRENT_USER.clave || "")}` : "";
+        const response = await fetch(`${CONFIG.gasUrl}?action=getSocios${userQuery}`);
         if (!response.ok) throw new Error("Error en respuesta HTTP del servidor.");
         
         const resJson = await response.json();
@@ -226,7 +247,8 @@ async function probarConexionNube() {
     logBox.innerHTML = `[${new Date().toLocaleTimeString()}] Iniciando prueba de conexión con Google Apps Script...\n`;
     
     try {
-        const response = await fetch(`${CONFIG.gasUrl}?action=getSocios`);
+        const userQuery = CURRENT_USER ? `&usuario=${encodeURIComponent(CURRENT_USER.usuario)}&clave=${encodeURIComponent(CURRENT_USER.clave || "")}` : "";
+        const response = await fetch(`${CONFIG.gasUrl}?action=getSocios${userQuery}`);
         if (!response.ok) throw new Error(`HTTP Error Status: ${response.status}`);
         
         const resJson = await response.json();
@@ -279,6 +301,8 @@ function renderizarTablas() {
         return matchesBusqueda && matchesEstado;
     });
 
+    const isReadOnly = CURRENT_USER && CURRENT_USER.rol === "Consulta";
+
     if (sociosFiltrados.length === 0) {
         listCobranzasBody.innerHTML = `
             <tr>
@@ -320,7 +344,9 @@ function renderizarTablas() {
                 </td>
                 <td>
                     <div class="btn-group">
-                        ${estado !== "Pagado" && !isSinFinLucro ? `
+                        ${isReadOnly ? `
+                            <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 500;"><i class="fa-solid fa-eye"></i> Solo Lectura</span>
+                        ` : (estado !== "Pagado" && !isSinFinLucro ? `
                             <button class="btn btn-secondary btn-action btn-small" onclick="abrirGeneradorCorreo('${socio.id}')">
                                 <i class="fa-solid fa-envelope"></i> Redactar Cobro
                             </button>
@@ -329,7 +355,7 @@ function renderizarTablas() {
                             </button>
                         ` : `
                             <span class="color-green-text" style="font-size: 0.8rem; font-weight:600;"><i class="fa-solid fa-circle-check"></i> Al Día</span>
-                        `}
+                        `)}
                     </div>
                 </td>
             `;
@@ -349,9 +375,13 @@ function renderizarTablas() {
             <td>${socio.contactoNombre}</td>
             <td>
                 <div class="btn-group">
-                    <button class="btn btn-secondary btn-action btn-small" onclick="abrirModalSocio('${socio.id}')">
-                        <i class="fa-solid fa-pen-to-square"></i>
-                    </button>
+                    ${isReadOnly ? `
+                        <span style="font-size: 0.8rem; color: var(--text-muted);">-</span>
+                    ` : `
+                        <button class="btn btn-secondary btn-action btn-small" onclick="abrirModalSocio('${socio.id}')">
+                            <i class="fa-solid fa-pen-to-square"></i>
+                        </button>
+                    `}
                 </div>
             </td>
         `;
@@ -454,13 +484,15 @@ async function marcarPagadoRapido(socioId) {
             method: "POST",
             mode: "cors",
             headers: {
-                "Content-Type": "application/plain" // Apps script prefiere texto plano para evitar preflight
+                "Content-Type": "text/plain;charset=utf-8"
             },
             body: JSON.stringify({
                 action: "registrarPago",
                 socioId: socioId,
                 periodo: PERIODO_ACTUAL,
-                monto: socio.montoCuota
+                monto: socio.montoCuota,
+                usuario: CURRENT_USER ? CURRENT_USER.usuario : "",
+                clave: CURRENT_USER ? CURRENT_USER.clave : ""
             })
         });
 
@@ -547,10 +579,12 @@ async function guardarSocioHandler() {
         const response = await fetch(CONFIG.gasUrl, {
             method: "POST",
             mode: "cors",
-            headers: { "Content-Type": "application/plain" },
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
             body: JSON.stringify({
                 action: "guardarSocio",
-                socio: socioData
+                socio: socioData,
+                usuario: CURRENT_USER ? CURRENT_USER.usuario : "",
+                clave: CURRENT_USER ? CURRENT_USER.clave : ""
             })
         });
 
@@ -716,12 +750,14 @@ async function dispararBorradorGmail() {
         const response = await fetch(CONFIG.gasUrl, {
             method: "POST",
             mode: "cors",
-            headers: { "Content-Type": "application/plain" },
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
             body: JSON.stringify({
                 action: "generarBorrador",
                 socioId: socio.id,
                 periodo: PERIODO_ACTUAL,
-                nivelAviso: nivelAviso
+                nivelAviso: nivelAviso,
+                usuario: CURRENT_USER ? CURRENT_USER.usuario : "",
+                clave: CURRENT_USER ? CURRENT_USER.clave : ""
             })
         });
         
@@ -795,4 +831,153 @@ function formatearMesAnio(periodoStr) {
     ];
     
     return `${meses[mesIndex]} ${anio}`;
+}
+
+/**
+ * ====================================================================
+ * SISTEMA DE SEGURIDAD Y CONTROL DE SESIÓN
+ * ====================================================================
+ */
+
+function validarSesion() {
+    const loginOverlay = document.getElementById("login-overlay");
+    if (!CURRENT_USER) {
+        loginOverlay.classList.add("active");
+        return false;
+    }
+    
+    loginOverlay.classList.remove("active");
+    
+    // Actualizar sidebar con los datos del usuario logueado
+    document.getElementById("display-user-name").textContent = CURRENT_USER.nombre;
+    document.getElementById("display-user-role").textContent = CURRENT_USER.rol;
+    
+    const avatarIcon = document.getElementById("user-avatar-icon");
+    if (CURRENT_USER.rol === "Administrador") {
+        avatarIcon.className = "fa-solid fa-user-shield text-blue";
+    } else {
+        avatarIcon.className = "fa-solid fa-user text-muted";
+    }
+    
+    aplicarRestriccionesRol();
+    return true;
+}
+
+function aplicarRestriccionesRol() {
+    const rol = CURRENT_USER ? CURRENT_USER.rol : "Consulta";
+    
+    // Seleccionar elementos admin-only
+    const btnNuevoSocio = document.getElementById("btn-nuevo-socio");
+    const navTabConfig = document.querySelector('.nav-item[data-tab="config"]');
+    
+    if (rol === "Consulta") {
+        // Esconder botones administrativos permanentes
+        if (btnNuevoSocio) btnNuevoSocio.classList.add("admin-only-hidden");
+        if (navTabConfig) navTabConfig.classList.add("admin-only-hidden");
+        
+        // Si estaba en la pestaña de configuración, mandarlo a cobranzas
+        const activeTab = document.querySelector(".nav-item.active");
+        if (activeTab && activeTab.getAttribute("data-tab") === "config") {
+            const cobTab = document.querySelector('.nav-item[data-tab="cobranzas"]');
+            if (cobTab) cobTab.click();
+        }
+    } else {
+        // Mostrar todo si es Admin
+        if (btnNuevoSocio) btnNuevoSocio.classList.remove("admin-only-hidden");
+        if (navTabConfig) navTabConfig.classList.remove("admin-only-hidden");
+    }
+}
+
+async function manejarLogin(e) {
+    e.preventDefault();
+    const user = document.getElementById("login-username").value.trim();
+    const pass = document.getElementById("login-password").value.trim();
+    const errorMsg = document.getElementById("login-error-msg");
+    const btnSubmit = document.getElementById("btn-login-submit");
+    
+    errorMsg.style.display = "none";
+    btnSubmit.disabled = true;
+    btnSubmit.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Validando...`;
+    
+    // Si no hay url configurada o es la demo local por falla
+    if (!CONFIG.gasUrl) {
+        if ((user === "admin" && pass === "admin123") || (user === "consulta" && pass === "consulta123")) {
+            CURRENT_USER = {
+                usuario: user,
+                rol: user === "admin" ? "Administrador" : "Consulta",
+                nombre: user === "admin" ? "Sebastián (Local)" : "Pablo (Lectura Local)"
+            };
+            localStorage.setItem("current_user", JSON.stringify(CURRENT_USER));
+            validarSesion();
+            btnSubmit.disabled = false;
+            btnSubmit.innerHTML = `<i class="fa-solid fa-arrow-right-to-bracket"></i> Iniciar Sesión`;
+            cargarSociosDeNube();
+            return;
+        } else {
+            errorMsg.querySelector("span").textContent = "Credenciales incorrectas (Base local)";
+            errorMsg.style.display = "flex";
+            btnSubmit.disabled = false;
+            btnSubmit.innerHTML = `<i class="fa-solid fa-arrow-right-to-bracket"></i> Iniciar Sesión`;
+            return;
+        }
+    }
+    
+    try {
+        const response = await fetch(CONFIG.gasUrl, {
+            method: "POST",
+            headers: {
+                "Content-Type": "text/plain;charset=utf-8"
+            },
+            body: JSON.stringify({
+                action: "login",
+                usuario: user,
+                clave: pass
+            })
+        });
+        
+        if (!response.ok) throw new Error("Error en respuesta HTTP del servidor.");
+        
+        const resJson = await response.json();
+        if (resJson.success) {
+            CURRENT_USER = {
+                usuario: resJson.user.usuario,
+                rol: resJson.user.rol,
+                nombre: resJson.user.nombre,
+                clave: pass // Guardamos la clave activa para transacciones subsiguientes
+            };
+            localStorage.setItem("current_user", JSON.stringify(CURRENT_USER));
+            validarSesion();
+            cargarSociosDeNube();
+        } else {
+            errorMsg.querySelector("span").textContent = resJson.error || "Usuario o clave incorrectos";
+            errorMsg.style.display = "flex";
+        }
+    } catch (err) {
+        console.error("Error al autenticar:", err);
+        errorMsg.querySelector("span").textContent = "Error de conexión con Google Sheets.";
+        errorMsg.style.display = "flex";
+    } finally {
+        btnSubmit.disabled = false;
+        btnSubmit.innerHTML = `<i class="fa-solid fa-arrow-right-to-bracket"></i> Iniciar Sesión`;
+    }
+}
+
+function manejarLogout() {
+    const confirmar = confirm("¿Deseas cerrar la sesión activa?");
+    if (!confirmar) return;
+    
+    CURRENT_USER = null;
+    localStorage.removeItem("current_user");
+    
+    // Limpiar inputs de login
+    document.getElementById("login-username").value = "";
+    document.getElementById("login-password").value = "";
+    document.getElementById("login-error-msg").style.display = "none";
+    
+    validarSesion();
+    
+    // Recargar en modo demostración/vacío
+    SOCIOS = [...SOCIOS_DEMO];
+    renderizarTablas();
+    calcularKPIs();
 }
