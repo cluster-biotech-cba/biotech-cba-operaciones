@@ -18,13 +18,13 @@ let PERIODO_ACTUAL = "2026-05";
 
 // Datos locales "fallback" para demostración si no hay URL en la nube conectada
 const SOCIOS_DEMO = [
-    { id: "SOC-001", nombreSocio: "Laboratorio Hemoderivados UNC", tipo: "Fin de Lucro", montoCuota: 45000, emailContacto: "administracion@hemoderivados.unc.edu.ar", contactoNombre: "Lic. María González", ultimoMesPagado: "2026-04", estadoActual: "Pendiente" },
-    { id: "SOC-002", nombreSocio: "Lamarx Biotech", tipo: "Fin de Lucro", montoCuota: 30000, emailContacto: "finanzas@lamarx.com.ar", contactoNombre: "Ing. Daniel Lamarque", ultimoMesPagado: "2026-05", estadoActual: "Pagado" },
-    { id: "SOC-003", nombreSocio: "Lace Laboratorios", tipo: "Fin de Lucro", montoCuota: 35000, emailContacto: "pagos@lace.com.ar", contactoNombre: "Dr. Claudio Lace", ultimoMesPagado: "2026-03", estadoActual: "Vencido" },
-    { id: "SOC-004", nombreSocio: "Promedon S.A.", tipo: "Fin de Lucro", montoCuota: 50000, emailContacto: "proveedores@promedon.com", contactoNombre: "Cdra. Sofía Promedon", ultimoMesPagado: "2026-04", estadoActual: "Pendiente" },
-    { id: "SOC-005", nombreSocio: "FPM Startups", tipo: "Fin de Lucro", montoCuota: 25000, emailContacto: "contacto@fpmbiotech.com", contactoNombre: "Bioq. Lucas Toledo", ultimoMesPagado: "2026-05", estadoActual: "Pagado" },
-    { id: "SOC-006", nombreSocio: "CONICET Córdoba", tipo: "Sin Fin de Lucro", montoCuota: 0, emailContacto: "vinculacion@cordoba-conicet.gov.ar", contactoNombre: "Dr. Edgardo Baldo", ultimoMesPagado: "2026-05", estadoActual: "Pagado" },
-    { id: "SOC-007", nombreSocio: "Ministerio de Ciencia y Tec.", tipo: "Sin Fin de Lucro", montoCuota: 0, emailContacto: "mincyt@cba.gov.ar", contactoNombre: "Secretaría de Vinculación", ultimoMesPagado: "2026-05", estadoActual: "Pagado" }
+    { id: "SOC-001", nombreSocio: "Laboratorio Hemoderivados UNC", tipo: "Fin de Lucro", categoria: "Estándar", montoCuota: 35000, emailContacto: "administracion@hemoderivados.unc.edu.ar", contactoNombre: "Lic. María González", ultimoMesPagado: "2026-04", estadoActual: "Pendiente" },
+    { id: "SOC-002", nombreSocio: "Lamarx Biotech", tipo: "Fin de Lucro", categoria: "Startup", montoCuota: 25000, emailContacto: "finanzas@lamarx.com.ar", contactoNombre: "Ing. Daniel Lamarque", ultimoMesPagado: "2026-05", estadoActual: "Pagado" },
+    { id: "SOC-003", nombreSocio: "Lace Laboratorios", tipo: "Fin de Lucro", categoria: "Estándar", montoCuota: 35000, emailContacto: "pagos@lace.com.ar", contactoNombre: "Dr. Claudio Lace", ultimoMesPagado: "2026-03", estadoActual: "Vencido" },
+    { id: "SOC-004", nombreSocio: "Promedon S.A.", tipo: "Fin de Lucro", categoria: "Premium", montoCuota: 50000, emailContacto: "proveedores@promedon.com", contactoNombre: "Cdra. Sofía Promedon", ultimoMesPagado: "2026-04", estadoActual: "Pendiente" },
+    { id: "SOC-005", nombreSocio: "FPM Startups", tipo: "Fin de Lucro", categoria: "Startup", montoCuota: 25000, emailContacto: "contacto@fpmbiotech.com", contactoNombre: "Bioq. Lucas Toledo", ultimoMesPagado: "2026-05", estadoActual: "Pagado" },
+    { id: "SOC-006", nombreSocio: "CONICET Córdoba", tipo: "Sin Fin de Lucro", categoria: "Exento", montoCuota: 0, emailContacto: "vinculacion@cordoba-conicet.gov.ar", contactoNombre: "Dr. Edgardo Baldo", ultimoMesPagado: "2026-05", estadoActual: "Pagado" },
+    { id: "SOC-007", nombreSocio: "Ministerio de Ciencia y Tec.", tipo: "Sin Fin de Lucro", categoria: "Exento", montoCuota: 0, emailContacto: "mincyt@cba.gov.ar", contactoNombre: "Secretaría de Vinculación", ultimoMesPagado: "2026-05", estadoActual: "Pagado" }
 ];
 
 // Datos bancarios institucionales para pre-redactar mails
@@ -495,7 +495,7 @@ function abrirModalSocio(socioId = null) {
             document.getElementById("socio-id").value = socio.id;
             document.getElementById("socio-nombre").value = socio.nombreSocio;
             document.getElementById("socio-tipo").value = socio.tipo;
-            document.getElementById("socio-cuota").value = socio.montoCuota;
+            document.getElementById("socio-categoria").value = socio.categoria || "Estándar";
             document.getElementById("socio-email").value = socio.emailContacto;
             document.getElementById("socio-contacto-nombre").value = socio.contactoNombre;
             document.getElementById("socio-ultimo-pago").value = socio.ultimoMesPagado || "";
@@ -517,7 +517,7 @@ async function guardarSocioHandler() {
         id: document.getElementById("socio-id").value,
         nombreSocio: document.getElementById("socio-nombre").value.trim(),
         tipo: document.getElementById("socio-tipo").value,
-        montoCuota: Number(document.getElementById("socio-cuota").value),
+        categoria: document.getElementById("socio-categoria").value,
         emailContacto: document.getElementById("socio-email").value.trim(),
         contactoNombre: document.getElementById("socio-contacto-nombre").value.trim(),
         ultimoMesPagado: document.getElementById("socio-ultimo-pago").value,
@@ -525,7 +525,10 @@ async function guardarSocioHandler() {
     };
 
     if (!CONFIG.gasUrl) {
-        // Guardar localmente en demo
+        // Guardar localmente en demo (calcular cuota local para que los KPIs no rompan)
+        const cuotasMap = { "Premium": 50000, "Estándar": 35000, "Startup": 25000, "Exento": 0 };
+        socioData.montoCuota = cuotasMap[socioData.categoria] || 0;
+        
         if (socioData.id) {
             const index = SOCIOS.findIndex(s => s.id === socioData.id);
             SOCIOS[index] = socioData;
