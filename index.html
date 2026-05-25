@@ -69,6 +69,9 @@
                 <a href="#" class="nav-item" data-tab="socios">
                     <i class="fa-solid fa-users"></i> Gestión Socios
                 </a>
+                <a href="#" class="nav-item" data-tab="historial">
+                    <i class="fa-solid fa-clock-rotate-left"></i> Historial Pagos
+                </a>
                 <a href="#" class="nav-item" data-tab="config">
                     <i class="fa-solid fa-sliders"></i> Conexión Nube
                 </a>
@@ -231,6 +234,46 @@
                         </thead>
                         <tbody id="lista-socios-body">
                             <!-- Inyectado dinámicamente -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+            
+            <!-- PANEL: HISTORIAL DE PAGOS -->
+            <section id="tab-historial" class="tab-panel">
+                <div class="panel-header-actions">
+                    <h3>Registro Histórico de Recaudaciones</h3>
+                    <button class="btn btn-secondary" id="btn-sync-historial">
+                        <i class="fa-solid fa-arrows-rotate"></i> Recargar Historial
+                    </button>
+                </div>
+                
+                <!-- Buscador para Historial -->
+                <div class="control-bar card mt-4">
+                    <div class="search-box" style="max-width: 100%;">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                        <input type="text" id="search-historial" placeholder="Buscar por socio, ID o período (ej: Marzo)...">
+                    </div>
+                </div>
+                
+                <div class="card overflow-x mt-4">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>ID Transacción</th>
+                                <th>Socio / Razón Social</th>
+                                <th>Período Cobrado</th>
+                                <th>Monto Percibido</th>
+                                <th>Fecha de Asiento</th>
+                                <th>Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody id="lista-historial-body">
+                            <tr>
+                                <td colspan="6" class="loading-state">
+                                    <i class="fa-solid fa-spinner fa-spin"></i> Cargando historial de cobros...
+                                </td>
+                            </tr>
                         </tbody>
                     </table>
                 </div>

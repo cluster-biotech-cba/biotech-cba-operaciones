@@ -14,6 +14,7 @@ let CONFIG = {
 };
 
 let SOCIOS = [];
+let HISTORIAL_PAGOS = [];
 let FILTRO_ESTADO = "todos";
 let FILTRO_BUSQUEDA = "";
 let PERIODO_ACTUAL = "2026-05";
@@ -77,9 +78,15 @@ function inicializarApp() {
             const titulos = {
                 cobranzas: "Gestión de Cobranzas y Cuotas",
                 socios: "Base de Miembros del Clúster",
+                historial: "Registro Histórico de Recaudaciones",
                 config: "Configuración de Conexión"
             };
             document.getElementById("page-title").textContent = titulos[tabId] || "Consola de Operaciones";
+            
+            // Cargar historial al entrar
+            if (tabId === "historial") {
+                cargarHistorialDeNube();
+            }
         });
     });
 
@@ -165,6 +172,16 @@ function inicializarApp() {
     const btnLogout = document.getElementById("btn-logout");
     if (btnLogout) {
         btnLogout.addEventListener("click", manejarLogout);
+    }
+
+    // EVENTOS HISTORIAL
+    const btnSyncHistorial = document.getElementById("btn-sync-historial");
+    if (btnSyncHistorial) {
+        btnSyncHistorial.addEventListener("click", cargarHistorialDeNube);
+    }
+    const searchHistorial = document.getElementById("search-historial");
+    if (searchHistorial) {
+        searchHistorial.addEventListener("input", renderizarHistorial);
     }
 
     // Cargar datos iniciales
@@ -355,6 +372,9 @@ function renderizarTablas() {
                             </button>
                         ` : `
                             <span class="color-green-text" style="font-size: 0.8rem; font-weight:600;"><i class="fa-solid fa-circle-check"></i> Al Día</span>
+                            <button class="btn btn-secondary btn-action btn-small" style="padding: 2px 6px; margin-left: 8px; font-size: 0.7rem;" onclick="verHistorialSocio('${socio.nombreSocio}')" title="Ver Historial de Pagos">
+                                <i class="fa-solid fa-clock-rotate-left"></i> Ver Pagos
+                            </button>
                         `)}
                     </div>
                 </td>
@@ -980,4 +1000,122 @@ function manejarLogout() {
     SOCIOS = [...SOCIOS_DEMO];
     renderizarTablas();
     calcularKPIs();
+}
+
+/**
+ * ====================================================================
+ * HISTORIAL DE COBROS Y TRANSCACIONES EN TIEMPO REAL
+ * ====================================================================
+ */
+
+const HISTORIAL_DEMO = [
+    { idTransaccion: "TX-1779730000000", idSocio: "SOC-002", nombreSocio: "Biosinergy", periodo: "2026-05", monto: 25000, fecha: "2026-05-15T14:30:00Z" },
+    { idTransaccion: "TX-1779720000000", idSocio: "SOC-004", nombreSocio: "FPM", periodo: "2026-05", monto: 25000, fecha: "2026-05-14T09:15:00Z" },
+    { idTransaccion: "TX-1779710000000", idSocio: "SOC-005", nombreSocio: "UNC-Hemoderivados", periodo: "2026-04", monto: 50000, fecha: "2026-04-22T11:45:00Z" }
+];
+
+async function cargarHistorialDeNube() {
+    const listBody = document.getElementById("lista-historial-body");
+    if (!listBody) return;
+    
+    listBody.innerHTML = `
+        <tr>
+            <td colspan="6" class="loading-state">
+                <i class="fa-solid fa-spinner fa-spin"></i> Cargando historial de cobros desde la nube...
+            </td>
+        </tr>
+    `;
+
+    if (!CONFIG.gasUrl) {
+        console.log("No hay URL de Apps Script configurada. Cargando historial de demostración local.");
+        HISTORIAL_PAGOS = [...HISTORIAL_DEMO];
+        setTimeout(() => {
+            renderizarHistorial();
+        }, 500);
+        return;
+    }
+
+    try {
+        const userQuery = CURRENT_USER ? `&usuario=${encodeURIComponent(CURRENT_USER.usuario)}&clave=${encodeURIComponent(CURRENT_USER.clave || "")}` : "";
+        const response = await fetch(`${CONFIG.gasUrl}?action=getTransacciones${userQuery}`);
+        if (!response.ok) throw new Error("Error en respuesta HTTP del servidor.");
+        
+        const resJson = await response.json();
+        
+        if (resJson.success) {
+            HISTORIAL_PAGOS = resJson.data;
+            renderizarHistorial();
+        } else {
+            throw new Error(resJson.error || "Error desconocido devuelto por Apps Script.");
+        }
+    } catch (error) {
+        console.error("Fallo al cargar el historial de cobros:", error);
+        HISTORIAL_PAGOS = [...HISTORIAL_DEMO];
+        renderizarHistorial();
+        alert("No pudimos conectar con tu base de datos para leer el historial de cobros.\n" +
+              "Se ha cargado un listado demostrativo local.");
+    }
+}
+
+function renderizarHistorial() {
+    const listBody = document.getElementById("lista-historial-body");
+    if (!listBody) return;
+    
+    listBody.innerHTML = "";
+    const filterText = document.getElementById("search-historial").value.toLowerCase().trim();
+    
+    const transaccionesFiltradas = HISTORIAL_PAGOS.filter(tx => {
+        return tx.nombreSocio.toLowerCase().includes(filterText) || 
+               tx.idTransaccion.toLowerCase().includes(filterText) || 
+               tx.periodo.toLowerCase().includes(filterText);
+    });
+
+    if (transaccionesFiltradas.length === 0) {
+        listBody.innerHTML = `
+            <tr>
+                <td colspan="6" class="loading-state">
+                    No se registraron cobros que coincidan con los filtros de búsqueda.
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    transaccionesFiltradas.forEach(tx => {
+        const fechaObj = new Date(tx.fecha);
+        const fechaTexto = !isNaN(fechaObj.getTime()) ? fechaObj.toLocaleString('es-AR', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        }) : tx.fecha || "-";
+        
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td><code style="font-size:0.75rem;">${tx.idTransaccion}</code></td>
+            <td><strong>${tx.nombreSocio}</strong><br><span style="font-size:0.72rem; color:var(--text-muted);">Socio ID: ${tx.idSocio}</span></td>
+            <td><span style="font-family:monospace; font-weight:600;">${formatearMesAnio(tx.periodo)}</span></td>
+            <td><strong style="color: var(--color-success); font-size:0.95rem;">+$${tx.monto.toLocaleString('es-AR')}</strong></td>
+            <td>${fechaTexto}</td>
+            <td><span class="badge badge-pagado" style="font-size:0.7rem;"><i class="fa-solid fa-circle-check"></i> Acreditado</span></td>
+        `;
+        listBody.appendChild(tr);
+    });
+}
+
+function verHistorialSocio(nombreSocio) {
+    // 1. Ir a la pestaña historial
+    const tabHistorial = document.querySelector('.nav-item[data-tab="historial"]');
+    if (tabHistorial) {
+        tabHistorial.click();
+    }
+    
+    // 2. Colocar el filtro de búsqueda
+    const inputSearch = document.getElementById("search-historial");
+    if (inputSearch) {
+        inputSearch.value = nombreSocio;
+        // Gatillar evento input para filtrar al instante
+        inputSearch.dispatchEvent(new Event('input'));
+    }
 }

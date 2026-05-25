@@ -69,6 +69,9 @@ function doGet(e) {
     else if (action === "getCategorias") {
       output = JSON.stringify({ success: true, data: obtenerCategoriasDeSheet() });
     }
+    else if (action === "getTransacciones") {
+      output = JSON.stringify({ success: true, data: obtenerTransaccionesDeSheet() });
+    }
     else {
       output = JSON.stringify({ success: false, error: "Acción no reconocida en GET." });
     }
@@ -172,19 +175,44 @@ function obtenerSociosRelacionales() {
   const sheet = obtenerOCrearHoja(HOJA_SOCIOS);
   const data = sheet.getDataRange().getValues();
   
-  if (data.length <= 1) return [];
+  if (data.length <= 0) return [];
   
-  const headers = data[0];
+  // 1. ADAPTAR EL SHEET SI LE FALTAN LAS COLUMNAS DE CONTROL DE PAGO
+  const headers = data[0].map(h => h.toString().trim());
+  let columnModified = false;
+  
+  let colUltimoMesIndex = headers.map(normalizarCabecera).indexOf("ultimoMesPagado");
+  let colEstadoIndex = headers.map(normalizarCabecera).indexOf("estadoActual");
+  
+  if (colUltimoMesIndex === -1) {
+    sheet.getRange(1, headers.length + 1).setValue("Ultimo Mes Pagado").setFontWeight("bold");
+    headers.push("Ultimo Mes Pagado");
+    columnModified = true;
+  }
+  if (colEstadoIndex === -1) {
+    sheet.getRange(1, headers.length + 1).setValue("Estado Actual").setFontWeight("bold");
+    headers.push("Estado Actual");
+    columnModified = true;
+  }
+  
+  // Si agregamos columnas, volvemos a leer los datos frescos
+  let activeData = data;
+  if (columnModified) {
+    activeData = sheet.getDataRange().getValues();
+  }
+  
+  const activeHeaders = activeData[0];
   const sociosRaw = [];
   
-  for (let i = 1; i < data.length; i++) {
-    const row = data[i];
-    if (!row[0]) continue;
+  for (let i = 1; i < activeData.length; i++) {
+    const row = activeData[i];
+    // Tolerar filas vacías si hay datos en alguna columna clave
+    if (!row[0] && !row[1] && !row[2] && !row[8]) continue;
     
     let socio = {};
-    headers.forEach((header, index) => {
+    activeHeaders.forEach((header, index) => {
       const key = normalizarCabecera(header);
-      socio[key] = row[index];
+      socio[key] = row[index] !== undefined ? row[index] : "";
     });
     sociosRaw.push(socio);
   }
@@ -195,10 +223,37 @@ function obtenerSociosRelacionales() {
     catMap[cat.categoria] = cat.montoCuota;
   });
   
-  return sociosRaw.map(socio => {
-    const cuotaCalculada = catMap[socio.categoria] !== undefined ? catMap[socio.categoria] : 0;
+  return sociosRaw.map((socio, idx) => {
+    // Buscar equivalencias de cabeceras custom de la planilla real de Clúster
+    const nombre = socio.razonSocial || socio.nombreSocio || socio.socio || "Socio Sin Nombre";
+    const contacto = socio.socioContactoDeEntrega || socio.contactoNombre || socio.contacto || "Administración";
+    const email = socio.mail || socio.emailContacto || socio.email || "";
+    
+    let tipo = socio.tipo || "Fin de Lucro";
+    if (socio.abonaMensual !== undefined && socio.abonaMensual !== "") {
+      const abonaStr = socio.abonaMensual.toString().trim().toLowerCase();
+      tipo = (abonaStr === "si" || abonaStr === "sí") ? "Fin de Lucro" : "Sin Fin de Lucro";
+    }
+    
+    const cat = socio.categoria || "Estándar";
+    const ultimoMes = socio.ultimoMesPagado || "";
+    const estado = socio.estadoActual || "Pendiente";
+    
+    // Auto-generar un ID si no lo tiene en la planilla
+    const id = socio.id || ("SOC-" + (1000 + idx));
+    
+    const cuotaCalculada = catMap[cat] !== undefined ? catMap[cat] : 0;
+    
     return {
-      ...socio,
+      ...socio, // Preservar CUIT, telefono, cargo, DNI, IVA
+      id: id,
+      nombreSocio: nombre,
+      contactoNombre: contacto,
+      emailContacto: email,
+      tipo: tipo,
+      categoria: cat,
+      ultimoMesPagado: ultimoMes,
+      estadoActual: estado,
       montoCuota: cuotaCalculada
     };
   });
@@ -211,20 +266,46 @@ function guardarOEditarSocio(socioData) {
   
   let rowIndex = -1;
   
-  if (socioData.id) {
-    for (let i = 1; i < data.length; i++) {
-      if (data[i][0].toString() === socioData.id.toString()) {
-        rowIndex = i + 1;
-        break;
-      }
+  // Buscar coincidencia por ID, CUIT, o Razón Social
+  const socioIdToFind = socioData.id;
+  const cuitToFind = socioData.cuit;
+  const nombreToFind = socioData.nombreSocio;
+  
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const rowId = row[0] ? row[0].toString() : "";
+    
+    const colCuitIndex = headers.map(normalizarCabecera).indexOf("cuit");
+    const rowCuit = (colCuitIndex !== -1 && row[colCuitIndex]) ? row[colCuitIndex].toString() : "";
+    
+    const colNombreIndex = headers.map(normalizarCabecera).indexOf("razonSocial");
+    const rowNombre = (colNombreIndex !== -1 && row[colNombreIndex]) ? row[colNombreIndex].toString() : "";
+    
+    if ((socioIdToFind && rowId === socioIdToFind.toString()) || 
+        (cuitToFind && rowCuit === cuitToFind.toString()) ||
+        (nombreToFind && rowNombre.toLowerCase() === nombreToFind.toLowerCase())) {
+      rowIndex = i + 1;
+      break;
     }
-  } else {
+  }
+  
+  if (rowIndex === -1 && !socioData.id) {
     socioData.id = "SOC-" + new Date().getTime();
   }
   
   const newRow = headers.map(header => {
     const key = normalizarCabecera(header);
-    return socioData[key] !== undefined ? socioData[key] : "";
+    if (socioData[key] !== undefined) return socioData[key];
+    
+    // Homologación reversa al escribir en las columnas originales del usuario
+    if (key === "razonSocial") return socioData.nombreSocio || "";
+    if (key === "socioContactoDeEntrega") return socioData.contactoNombre || "";
+    if (key === "mail") return socioData.emailContacto || "";
+    if (key === "abonaMensual") return (socioData.tipo === "Fin de Lucro" ? "SI" : "NO");
+    if (key === "ultimoMesPagado") return socioData.ultimoMesPagado || "";
+    if (key === "estadoActual") return socioData.estadoActual || "Pendiente";
+    
+    return "";
   });
   
   if (rowIndex !== -1) {
@@ -244,10 +325,14 @@ function registrarPagoSocio(socioId, periodo, monto) {
   let socioRowIndex = -1;
   let socioNombre = "";
   
+  const colNombreIndex = headersSocios.map(normalizarCabecera).indexOf("razonSocial");
+  const fallbackNombreIndex = headersSocios.map(normalizarCabecera).indexOf("nombreSocio");
+  const actualNombreIndex = colNombreIndex !== -1 ? colNombreIndex : (fallbackNombreIndex !== -1 ? fallbackNombreIndex : 1);
+  
   for (let i = 1; i < dataSocios.length; i++) {
     if (dataSocios[i][0].toString() === socioId.toString()) {
       socioRowIndex = i + 1;
-      socioNombre = dataSocios[i][1];
+      socioNombre = dataSocios[i][actualNombreIndex] ? dataSocios[i][actualNombreIndex].toString() : "Socio";
       break;
     }
   }
@@ -276,6 +361,28 @@ function registrarPagoSocio(socioId, periodo, monto) {
   ]);
   
   return { transaccionId, socioId, periodo, estadoActual: "Pagado" };
+}
+
+function obtenerTransaccionesDeSheet() {
+  const sheet = obtenerOCrearHoja(HOJA_HISTORIAL);
+  const data = sheet.getDataRange().getValues();
+  
+  if (data.length <= 1) return [];
+  
+  const transacciones = [];
+  for (let i = data.length - 1; i >= 1; i--) { // De más nuevas a más viejas
+    const row = data[i];
+    if (!row[0]) continue;
+    transacciones.push({
+      idTransaccion: row[0].toString(),
+      idSocio: row[1].toString(),
+      nombreSocio: row[2].toString(),
+      periodo: row[3].toString(),
+      monto: Number(row[4]),
+      fecha: row[5]
+    });
+  }
+  return transacciones;
 }
 
 /**
