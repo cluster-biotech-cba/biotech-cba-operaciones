@@ -3,13 +3,6 @@
  * BACKEND API RELACIONAL - CLUSTER DE BIOTECNOLOGÍA DE CÓRDOBA
  * Google Apps Script para la Consola de Cobranzas y Operaciones
  * ====================================================================
- * 
- * Este script actúa como una base de datos relacional en la nube.
- * Vincula cuatro tablas/pestañas:
- * 1. Categorias (Gestión centralizada de precios de cuotas).
- * 2. Socios (Miembros activos asociados a una categoría de cuota).
- * 3. HistorialPagos (Registro histórico de transacciones de cobranza).
- * 4. CRM_Prospectos (Pipeline de captación de nuevos socios).
  */
 
 const HOJA_SOCIOS = "Socios";
@@ -18,6 +11,7 @@ const HOJA_HISTORIAL = "HistorialPagos";
 const HOJA_CRM = "CRM_Prospectos";
 
 // ID DE LA CARPETA DE GOOGLE DRIVE DONDE ESTÁN LOS PDFS DE LAS FACTURAS
+// Coloca aquí el ID de tu carpeta de Drive para acotar la búsqueda y hacerla ultra rápida
 const CARPETA_FACTURAS_ID = ""; 
 
 /**
@@ -103,9 +97,6 @@ function doOptions(e) {
  * ====================================================================
  */
 
-/**
- * Lee la tabla de categorías y sus valores de cuota
- */
 function obtenerCategoriasDeSheet() {
   const sheet = obtenerOCrearHoja(HOJA_CATEGORIAS);
   const data = sheet.getDataRange().getValues();
@@ -123,10 +114,6 @@ function obtenerCategoriasDeSheet() {
   return categorias;
 }
 
-/**
- * Realiza un "JOIN" en memoria entre Socios y Categorias
- * De esta forma, el frontend recibe los socios con su cuota calculada en tiempo real.
- */
 function obtenerSociosRelacionales() {
   const sheet = obtenerOCrearHoja(HOJA_SOCIOS);
   const data = sheet.getDataRange().getValues();
@@ -148,19 +135,14 @@ function obtenerSociosRelacionales() {
     sociosRaw.push(socio);
   }
   
-  // Obtener categorías para relacionar
   const categorias = obtenerCategoriasDeSheet();
   const catMap = {};
   categorias.forEach(cat => {
     catMap[cat.categoria] = cat.montoCuota;
   });
   
-  // Realizar el JOIN en memoria
   return sociosRaw.map(socio => {
-    // Buscar el valor de la cuota según su categoría
     const cuotaCalculada = catMap[socio.categoria] !== undefined ? catMap[socio.categoria] : 0;
-    
-    // Mantenemos el campo montoCuota para compatibilidad directa con el frontend
     return {
       ...socio,
       montoCuota: cuotaCalculada
@@ -168,9 +150,6 @@ function obtenerSociosRelacionales() {
   });
 }
 
-/**
- * Guarda o edita un socio en la Google Sheet de forma relacional
- */
 function guardarOEditarSocio(socioData) {
   const sheet = obtenerOCrearHoja(HOJA_SOCIOS);
   const data = sheet.getDataRange().getValues();
@@ -189,7 +168,6 @@ function guardarOEditarSocio(socioData) {
     socioData.id = "SOC-" + new Date().getTime();
   }
   
-  // Mapear el objeto del socio a la fila según las cabeceras actuales de la planilla
   const newRow = headers.map(header => {
     const key = normalizarCabecera(header);
     return socioData[key] !== undefined ? socioData[key] : "";
@@ -204,9 +182,6 @@ function guardarOEditarSocio(socioData) {
   return socioData;
 }
 
-/**
- * Registra un pago de cuota y actualiza el último mes pagado en la planilla
- */
 function registrarPagoSocio(socioId, periodo, monto) {
   const sheetSocios = obtenerOCrearHoja(HOJA_SOCIOS);
   const dataSocios = sheetSocios.getDataRange().getValues();
@@ -235,7 +210,6 @@ function registrarPagoSocio(socioId, periodo, monto) {
     sheetSocios.getRange(socioRowIndex, colEstadoIndex).setValue("Pagado");
   }
   
-  // Registrar en la hoja de Historial
   const sheetHistorial = obtenerOCrearHoja(HOJA_HISTORIAL);
   const transaccionId = "TX-" + new Date().getTime();
   sheetHistorial.appendRow([
@@ -252,6 +226,7 @@ function registrarPagoSocio(socioId, periodo, monto) {
 
 /**
  * Genera un borrador en Gmail con la plantilla adecuada y adjunta la factura en PDF de Drive
+ * SOPORTA BÚSQUEDA INTELIGENTE DE BIMESTRES (Eje: "marzo abril", "marzo abirl") con tolerancia a errores de tipeo.
  */
 function generarBorradorGmail(socioId, periodo, nivelAviso) {
   const socios = obtenerSociosRelacionales();
@@ -259,6 +234,10 @@ function generarBorradorGmail(socioId, periodo, nivelAviso) {
   
   if (!socio) throw new Error("Socio no encontrado");
   if (!socio.emailContacto) throw new Error("El socio no tiene un correo de contacto configurado.");
+  
+  // 1. OBTENER PALABRAS CLAVE DEL PERÍODO BIMENSUAL
+  const palabrasClavePeriodo = obtenerPalabrasClaveBimestre(periodo);
+  const anioPeriodo = periodo.split("-")[0]; // Eje: "2026"
   
   let archivoFactura = null;
   
@@ -268,14 +247,39 @@ function generarBorradorGmail(socioId, periodo, nivelAviso) {
       carpeta = DriveApp.getFolderById(CARPETA_FACTURAS_ID);
     }
     
-    const query = `title contains '${socio.nombreSocio}' and title contains '${periodo}' and mimeType = 'application/pdf'`;
+    // Normalizar el nombre del socio para la búsqueda (ej: tomar la primera palabra significativa)
+    // Eje: "UNC-Hemoderivados" -> buscar "Hemoderivados" o "UNC-Hemoderivados"
+    const nombreSocioLimpio = socio.nombreSocio.split(" ")[0].replace(/[^a-zA-Z0-9\-]/g, ""); 
+    
+    // Query flexible: Buscar archivos PDF que contengan el nombre limpio del socio y el año
+    const query = `title contains '${nombreSocioLimpio}' and title contains '${anioPeriodo}' and mimeType = 'application/pdf'`;
     const archivosIterador = carpeta ? carpeta.searchFiles(query) : DriveApp.searchFiles(query);
     
-    if (archivosIterador.hasNext()) {
-      archivoFactura = archivosIterador.next();
+    // Analizar las coincidencias para encontrar la que mejor calce con el bimestre
+    let mejorCoincidencia = null;
+    let maxCoincidenciasPalabras = 0;
+    
+    while (archivosIterador.hasNext()) {
+      const archivo = archivosIterador.next();
+      const tituloLimpio = archivo.getName().toLowerCase();
+      
+      let coincidencias = 0;
+      palabrasClavePeriodo.forEach(palabra => {
+        if (tituloLimpio.includes(palabra)) {
+          coincidencias++;
+        }
+      });
+      
+      // Si el título del archivo coincide con más palabras clave del bimestre, lo seleccionamos
+      if (coincidencias > maxCoincidenciasPalabras) {
+        maxCoincidenciasPalabras = coincidencias;
+        mejorCoincidencia = archivo;
+      }
     }
+    
+    archivoFactura = mejorCoincidencia;
   } catch (driveError) {
-    Logger.log("Error al buscar factura en Drive: " + driveError.toString());
+    Logger.log("Error al buscar factura bimensual en Drive: " + driveError.toString());
   }
   
   const datosBanco = {
@@ -287,13 +291,13 @@ function generarBorradorGmail(socioId, periodo, nivelAviso) {
   
   let asunto = "";
   let cuerpo = "";
-  const mesAnioTexto = formatearMesAnio(periodo);
+  const mesAnioTexto = formatearMesAnioBimestre(periodo); // Formato Bimestre: "Marzo-Abril 2026"
   
   if (nivelAviso === 1) {
     asunto = `Clúster de Biotecnología de Córdoba - Recordatorio de Cuota Mensual [${mesAnioTexto}] - ${socio.nombreSocio}`;
     cuerpo = `Hola ${socio.contactoNombre || "de nuestra consideración"},\n\n` +
              `Espero que te encuentres muy bien.\n\n` +
-             `Te escribimos desde el Clúster de Biotecnología de Córdoba para hacerte llegar el recordatorio de la cuota correspondiente a **${mesAnioTexto}** por un monto de **$${socio.montoCuota.toLocaleString('es-AR')}**.\n\n` +
+             `Te escribimos desde el Clúster de Biotecnología de Córdoba para hacerte llegar el recordatorio de la cuota correspondiente al bimestre **${mesAnioTexto}** por un monto de **$${socio.montoCuota.toLocaleString('es-AR')}**.\n\n` +
              `Para tu comodidad, te recordamos los datos de transferencia bancaria de la institución:\n` +
              `*   **Banco:** ${datosBanco.banco}\n` +
              `*   **CBU:** ${datosBanco.cbu}\n` +
@@ -310,7 +314,7 @@ function generarBorradorGmail(socioId, periodo, nivelAviso) {
     asunto = `Estado de Cuenta y Aporte Societario - Clúster de Biotecnología de Córdoba - ${socio.nombreSocio}`;
     cuerpo = `Estimado/a ${socio.contactoNombre || "de nuestra consideración"},\n\n` +
              `Esperamos que estés muy bien.\n\n` +
-             `Nos comunicamos para saludarte y, a la vez, realizar una actualización del estado de cuenta de **${socio.nombreSocio}** en el Clúster. Al día de la fecha, registramos un saldo pendiente de pago correspondiente al período de **${mesAnioTexto}** por un total acumulado de **$${socio.montoCuota.toLocaleString('es-AR')}**.\n\n` +
+             `Nos comunicamos para saludarte y, a la vez, realizar una actualización del estado de cuenta de **${socio.nombreSocio}** en el Clúster. Al día de la fecha, registramos un saldo pendiente de pago correspondiente al período bimensual **${mesAnioTexto}** por un total acumulado de **$${socio.montoCuota.toLocaleString('es-AR')}**.\n\n` +
              `Como sabes, el Clúster es una asociación sin fines de lucro, y el aporte mensual de nuestros socios es el motor fundamental que sostiene nuestras actividades, eventos de vinculación, gestión de financiamiento y representatividad sectorial. Tu contribución hace que todo esto sea posible.\n\n` +
              `Te dejamos nuevamente los datos para regularizar la situación mediante transferencia:\n` +
              `*   **CBU:** ${datosBanco.cbu} | **Alias:** ${datosBanco.alias}\n` +
@@ -326,7 +330,7 @@ function generarBorradorGmail(socioId, periodo, nivelAviso) {
     asunto = `Actualización y Agenda de Reunión Operativa - Clúster Biotech Cba - ${socio.nombreSocio}`;
     cuerpo = `Estimado/a ${socio.contactoNombre || "de nuestra consideración"},\n\n` +
              `Esperamos que te encuentres muy bien.\n\n` +
-             `Te escribimos en esta oportunidad con la intención de ponernos en contacto directo con respecto al estado societario de **${socio.nombreSocio}**. Registramos un saldo pendiente acumulado correspondiente al período de **${mesAnioTexto}** por un total de **$${socio.montoCuota.toLocaleString('es-AR')}**.\n\n` +
+             `Te escribimos en esta oportunidad con la intención de ponernos en contacto directo con respecto al estado societario de **${socio.nombreSocio}**. Registramos un saldo pendiente acumulado correspondiente al período bimensual **${mesAnioTexto}** por un total de **$${socio.montoCuota.toLocaleString('es-AR')}**.\n\n` +
              `Más allá de la regularización administrativa, para nosotros es de vital importancia mantener un contacto cercano con cada uno de nuestros socios. Queremos entender el momento actual de la empresa, asegurarnos de que estén aprovechando al máximo la red de vinculación del Clúster, y conversar sobre cómo podemos apoyarlos mejor en sus desafíos presentes.\n\n` +
              `Por esta razón, nos gustaría proponerles agendar una breve reunión virtual de 15 minutos con Sebastián Bizzi o Pablo durante la próxima semana. ¿Tendrías disponibilidad el próximo martes o jueves por la mañana?\n\n` +
              `Quedamos a la espera de tu confirmación para coordinar el horario y enviarte el enlace de conexión.\n\n` +
@@ -369,25 +373,20 @@ function obtenerOCrearHoja(nombreHoja) {
   if (!sheet) {
     sheet = ss.insertSheet(nombreHoja);
     
-    // TABLA 1: CATEGORIAS (Precios de cuotas)
     if (nombreHoja === HOJA_CATEGORIAS) {
       sheet.appendRow(["Categoria", "Monto Cuota ($)"]);
       sheet.getRange("A1:B1").setFontWeight("bold").setBackground("#cbd5e1");
-      
-      // Valores por defecto
       sheet.appendRow(["Premium", 50000]);
       sheet.appendRow(["Estándar", 35000]);
       sheet.appendRow(["Startup", 25000]);
       sheet.appendRow(["Exento", 0]);
     }
-    
-    // TABLA 2: SOCIOS (Relacional)
     else if (nombreHoja === HOJA_SOCIOS) {
       sheet.appendRow([
         "ID", 
         "Nombre Socio", 
         "Tipo", 
-        "Categoria", // Hace referencia a la hoja de Categorias
+        "Categoria", 
         "Email Contacto", 
         "Contacto Nombre", 
         "Ultimo Mes Pagado", 
@@ -395,26 +394,20 @@ function obtenerOCrearHoja(nombreHoja) {
       ]);
       sheet.getRange("A1:H1").setFontWeight("bold").setBackground("#e2e8f0");
       
-      // Socios de prueba relacionales
-      sheet.appendRow(["SOC-001", "Laboratorio Hemoderivados UNC", "Fin de Lucro", "Estándar", "administracion@hemoderivados.unc.edu.ar", "Lic. María González", "2026-04", "Pendiente"]);
-      sheet.appendRow(["SOC-002", "Lamarx Biotech", "Fin de Lucro", "Startup", "finanzas@lamarx.com.ar", "Ing. Daniel Lamarque", "2026-05", "Pagado"]);
-      sheet.appendRow(["SOC-003", "Lace Laboratorios", "Fin de Lucro", "Estándar", "pagos@lace.com.ar", "Dr. Claudio Lace", "2026-03", "Vencido"]);
-      sheet.appendRow(["SOC-004", "Promedon S.A.", "Fin de Lucro", "Premium", "proveedores@promedon.com", "Cdra. Sofía Promedon", "2026-04", "Pendiente"]);
-      sheet.appendRow(["SOC-005", "CONICET Córdoba", "Sin Fin de Lucro", "Exento", "vinculacion@cordoba-conicet.gov.ar", "Dr. Edgardo Baldo", "2026-05", "Pagado"]);
+      // Socios de prueba reales adaptados a la captura de Drive del usuario
+      sheet.appendRow(["SOC-001", "Bioetanol", "Fin de Lucro", "Estándar", "administracion@bioetanol.com.ar", "Lic. Roberto Paz", "2026-02", "Pendiente"]);
+      sheet.appendRow(["SOC-002", "Biosinergy", "Fin de Lucro", "Startup", "finanzas@biosinergy.com.ar", "Ing. Daniel Lamarque", "2026-04", "Pagado"]);
+      sheet.appendRow(["SOC-003", "Buenas maltas", "Fin de Lucro", "Startup", "pagos@buenasmaltas.com.ar", "Dr. Claudio Lace", "2026-02", "Vencido"]);
+      sheet.appendRow(["SOC-004", "FPM", "Fin de Lucro", "Startup", "proveedores@fpm.com", "Bioq. Lucas Toledo", "2026-04", "Pagado"]);
+      sheet.appendRow(["SOC-005", "UNC-Hemoderivados", "Fin de Lucro", "Premium", "vinculacion@hemoderivados.unc.edu.ar", "Dr. Hugo Juri", "2026-02", "Pendiente"]);
     }
-    
-    // TABLA 3: HISTORIAL DE PAGOS
     else if (nombreHoja === HOJA_HISTORIAL) {
       sheet.appendRow(["ID Transaccion", "ID Socio", "Nombre Socio", "Periodo Pagado", "Monto", "Fecha Registro"]);
       sheet.getRange("A1:F1").setFontWeight("bold").setBackground("#cbd5e1");
     }
-    
-    // TABLA 4: CRM PROSPECTOS (Para el pipeline futuro)
     else if (nombreHoja === HOJA_CRM) {
       sheet.appendRow(["ID Lead", "Nombre Empresa", "Estado", "Email Contacto", "Contacto Nombre", "Fecha Registro"]);
       sheet.getRange("A1:F1").setFontWeight("bold").setBackground("#e2e8f0");
-      
-      // Cargar prospectos iniciales de prueba
       sheet.appendRow(["LEAD-001", "Biocombustibles Cba", "Mapeado", "contacto@biocba.com", "Ing. Roberto Paz", new Date()]);
       sheet.appendRow(["LEAD-002", "AgroBiotech S.A.", "Contacto Inicial", "ventas@agrobiotech.com", "Dra. Laura Rossi", new Date()]);
       sheet.appendRow(["LEAD-003", "Genética Semillas", "Reunión", "info@geneticasemillas.com", "Lic. Esteban Juárez", new Date()]);
@@ -425,9 +418,70 @@ function obtenerOCrearHoja(nombreHoja) {
 
 /**
  * ====================================================================
- * FUNCIONES AUXILIARES DE UTILIDAD
+ * CONFIGURACION DE TRADUCCION Y BUSQUEDA DE MESES/BIMESTRES
  * ====================================================================
  */
+
+/**
+ * Traduce un formato "YYYY-MM" al bimestre correspondiente en palabras clave para búsqueda en Drive.
+ * Soporta fallos tipográficos ("abril", "abirl").
+ */
+function obtenerPalabrasClaveBimestre(periodoStr) {
+  if (!periodoStr || !periodoStr.includes("-")) return ["marzo", "abril", "abirl"];
+  
+  const mesIndex = parseInt(periodoStr.split("-")[1], 10);
+  
+  // Asignación de bimestres según el mes de cierre o cobro del selector
+  // Si el selector marca Abril (04), corresponde al bimestre Marzo-Abril
+  if (mesIndex === 3 || mesIndex === 4) {
+    return ["marzo", "abril", "abirl"];
+  } 
+  else if (mesIndex === 5 || mesIndex === 6) {
+    return ["mayo", "junio", "junio"];
+  } 
+  else if (mesIndex === 7 || mesIndex === 8) {
+    return ["julio", "agosto"];
+  } 
+  else if (mesIndex === 9 || mesIndex === 10) {
+    return ["septiembre", "octubre"];
+  } 
+  else if (mesIndex === 11 || mesIndex === 12) {
+    return ["noviembre", "diciembre"];
+  } 
+  else {
+    return ["enero", "febrero"];
+  }
+}
+
+/**
+ * Formatea el período YYYY-MM en una cadena legible de Bimestre en español
+ */
+function formatearMesAnioBimestre(periodoStr) {
+  if (!periodoStr || !periodoStr.includes("-")) return periodoStr;
+  
+  const partes = periodoStr.split("-");
+  const anio = partes[0];
+  const mesIndex = parseInt(partes[1], 10);
+  
+  if (mesIndex === 3 || mesIndex === 4) {
+    return `Marzo-Abril ${anio}`;
+  } 
+  else if (mesIndex === 5 || mesIndex === 6) {
+    return `Mayo-Junio ${anio}`;
+  } 
+  else if (mesIndex === 7 || mesIndex === 8) {
+    return `Julio-Agosto ${anio}`;
+  } 
+  else if (mesIndex === 9 || mesIndex === 10) {
+    return `Septiembre-Octubre ${anio}`;
+  } 
+  else if (mesIndex === 11 || mesIndex === 12) {
+    return `Noviembre-Diciembre ${anio}`;
+  } 
+  else {
+    return `Enero-Febrero ${anio}`;
+  }
+}
 
 function normalizarCabecera(str) {
   return str.toString()
@@ -439,19 +493,4 @@ function normalizarCabecera(str) {
     .split(" ")
     .map((word, index) => index === 0 ? word : word.charAt(0).toUpperCase() + word.slice(1))
     .join("");
-}
-
-function formatearMesAnio(periodoStr) {
-  if (!periodoStr || !periodoStr.includes("-")) return periodoStr;
-  
-  const partes = periodoStr.split("-");
-  const anio = partes[0];
-  const mesIndex = parseInt(partes[1], 10) - 1;
-  
-  const meses = [
-    "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
-    "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
-  ];
-  
-  return `${meses[mesIndex]} ${anio}`;
 }
