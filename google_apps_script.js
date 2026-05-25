@@ -18,11 +18,11 @@ const CARPETA_FACTURAS_ID = "";
  * Recibe las solicitudes HTTP GET desde la aplicación local (SPA)
  */
 function doGet(e) {
-  const origin = e.parameter.origin || "*";
+  const origin = (e && e.parameter && e.parameter.origin) ? e.parameter.origin : "*";
   let output;
   
   try {
-    const action = e.parameter.action;
+    const action = (e && e.parameter) ? e.parameter.action : "";
     
     if (action === "getSocios") {
       output = JSON.stringify({ success: true, data: obtenerSociosRelacionales() });
@@ -48,7 +48,7 @@ function doGet(e) {
  * Recibe las solicitudes HTTP POST (creación de borradores, registros de pago)
  */
 function doPost(e) {
-  const origin = e.parameter.origin || "*";
+  const origin = (e && e.parameter && e.parameter.origin) ? e.parameter.origin : "*";
   let output;
   
   try {
