@@ -274,7 +274,13 @@ async function cargarSociosDeNube() {
             statusIndicator.querySelector(".status-text").textContent = "Conectado a Sheets";
             renderizarTablas();
             calcularKPIs();
+            cargarCampanaMasiva();
         } else {
+            if (resJson.error && resJson.error.includes("No autorizado")) {
+                localStorage.removeItem("current_user");
+                CURRENT_USER = null;
+                validarSesion();
+            }
             throw new Error(resJson.error || "Error desconocido devuelto por Apps Script.");
         }
     } catch (error) {
@@ -286,6 +292,7 @@ async function cargarSociosDeNube() {
         SOCIOS = [...SOCIOS_DEMO];
         renderizarTablas();
         calcularKPIs();
+        cargarCampanaMasiva();
         
         alert("Atención: No pudimos conectar con tu Google Sheet en la nube.\n" +
               "Hemos cargado la Base de Datos Demostrativa local para que sigas operando.\n" +
@@ -317,6 +324,7 @@ async function probarConexionNube() {
             
             renderizarTablas();
             calcularKPIs();
+            cargarCampanaMasiva();
             alert("✅ Conexión con tu Google Sheet establecida con éxito.");
         } else {
             throw new Error(resJson.error);

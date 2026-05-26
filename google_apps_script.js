@@ -64,7 +64,11 @@ function doGet(e) {
       output = JSON.stringify({ success: false, error: "No autorizado. Inicie sesión nuevamente." });
     } 
     else if (action === "getSocios") {
-      output = JSON.stringify({ success: true, data: obtenerSociosRelacionales() });
+      output = JSON.stringify({ 
+        success: true, 
+        data: obtenerSociosRelacionales(),
+        categorias: obtenerCategoriasDeSheet() 
+      });
     } 
     else if (action === "getCategorias") {
       output = JSON.stringify({ success: true, data: obtenerCategoriasDeSheet() });
