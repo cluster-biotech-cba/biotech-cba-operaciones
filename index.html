@@ -72,6 +72,9 @@
                 <a href="#" class="nav-item" data-tab="historial">
                     <i class="fa-solid fa-clock-rotate-left"></i> Historial Pagos
                 </a>
+                <a href="#" class="nav-item" data-tab="masivo">
+                    <i class="fa-solid fa-paper-plane"></i> Envío Masivo
+                </a>
                 <a href="#" class="nav-item" data-tab="config">
                     <i class="fa-solid fa-sliders"></i> Conexión Nube
                 </a>
@@ -192,7 +195,6 @@
                             <tr>
                                 <th>Socio / Razón Social</th>
                                 <th>Contacto</th>
-                                <th>Tipo</th>
                                 <th>Cuota</th>
                                 <th>Último Mes Pago</th>
                                 <th>Estado</th>
@@ -201,7 +203,7 @@
                         </thead>
                         <tbody id="lista-cobranzas-body">
                             <tr>
-                                <td colspan="7" class="loading-state">
+                                <td colspan="6" class="loading-state">
                                     <i class="fa-solid fa-spinner fa-spin"></i> Cargando base de datos en la nube...
                                 </td>
                             </tr>
@@ -225,7 +227,7 @@
                             <tr>
                                 <th>ID</th>
                                 <th>Socio / Razón Social</th>
-                                <th>Tipo de Membresía</th>
+                                <th>Categoría</th>
                                 <th>Valor Cuota ($)</th>
                                 <th>Email Administración</th>
                                 <th>Contacto Administrativo</th>
@@ -272,6 +274,62 @@
                             <tr>
                                 <td colspan="6" class="loading-state">
                                     <i class="fa-solid fa-spinner fa-spin"></i> Cargando historial de cobros...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+            
+            <!-- PANEL: ASISTENTE DE ENVÍO MASIVO -->
+            <section id="tab-masivo" class="tab-panel">
+                <div class="header-actions">
+                    <div>
+                        <h3>Asistente de Envío Masivo</h3>
+                        <p class="description">Automatiza las campañas de cobro y recordatorios bimestrales para todos tus socios en un solo clic.</p>
+                    </div>
+                    <button class="btn btn-primary" id="btn-ejecutar-campana" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">
+                        <i class="fa-solid fa-paper-plane"></i> Enviar Correos Aprobados
+                    </button>
+                </div>
+                
+                <!-- KPIs de Campaña -->
+                <div class="kpi-grid mt-4">
+                    <div class="kpi-card">
+                        <div class="kpi-icon" style="background-color: rgba(59, 130, 246, 0.1); color: var(--color-blue);"><i class="fa-solid fa-file-invoice"></i></div>
+                        <div class="kpi-value" id="campana-total-facturas">0</div>
+                        <div class="kpi-label">Facturas Iniciales</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-icon" style="background-color: rgba(245, 158, 11, 0.1); color: var(--color-amber);"><i class="fa-solid fa-hourglass-half"></i></div>
+                        <div class="kpi-value" id="campana-total-aviso1">0</div>
+                        <div class="kpi-label">1° Recordatorios</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-icon" style="background-color: rgba(239, 68, 68, 0.1); color: var(--color-red);"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                        <div class="kpi-value" id="campana-total-aviso2">0</div>
+                        <div class="kpi-label">2° Recordatorios</div>
+                    </div>
+                </div>
+
+                <!-- Tabla de Socios para Campaña -->
+                <div class="card overflow-x mt-4">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 40px; text-align: center;"><input type="checkbox" id="chk-campana-select-all" checked></th>
+                                <th>Socio / Razón Social</th>
+                                <th>Último Mes Pago</th>
+                                <th>Tipo de Notificación</th>
+                                <th>Último Aviso</th>
+                                <th>Monto</th>
+                                <th>Estado Factura</th>
+                            </tr>
+                        </thead>
+                        <tbody id="lista-campana-body">
+                            <tr>
+                                <td colspan="7" class="loading-state">
+                                    <i class="fa-solid fa-spinner fa-spin"></i> Cargando socios elegibles para la campaña...
                                 </td>
                             </tr>
                         </tbody>
@@ -410,20 +468,9 @@
                     </div>
                     
                     <div class="form-group">
-                        <label for="socio-tipo">Tipo de Socio:</label>
-                        <select id="socio-tipo">
-                            <option value="Fin de Lucro">Con Fin de Lucro (Paga cuota)</option>
-                            <option value="Sin Fin de Lucro">Sin Fin de Lucro (Exento por ahora)</option>
-                        </select>
-                    </div>
-                    
-                    <div class="form-group">
                         <label for="socio-categoria">Categoría de Membresía / Cuota:</label>
                         <select id="socio-categoria">
-                            <option value="Premium">Premium ($50.000)</option>
-                            <option value="Estándar">Estándar ($35.000)</option>
-                            <option value="Startup">Startup ($25.000)</option>
-                            <option value="Exento">Exento ($0 - Sin Fin de Lucro)</option>
+                            <!-- Inyectado dinámicamente desde Sheets -->
                         </select>
                     </div>
                     

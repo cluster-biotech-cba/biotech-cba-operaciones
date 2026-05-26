@@ -14,6 +14,12 @@ let CONFIG = {
 };
 
 let SOCIOS = [];
+let CATEGORIAS = [
+    { categoria: "Premium", montoCuota: 50000 },
+    { categoria: "Estándar", montoCuota: 35000 },
+    { categoria: "Startup", montoCuota: 25000 },
+    { categoria: "Exento", montoCuota: 0 }
+];
 let HISTORIAL_PAGOS = [];
 let FILTRO_ESTADO = "todos";
 let FILTRO_BUSQUEDA = "";
@@ -79,13 +85,16 @@ function inicializarApp() {
                 cobranzas: "Gestión de Cobranzas y Cuotas",
                 socios: "Base de Miembros del Clúster",
                 historial: "Registro Histórico de Recaudaciones",
+                masivo: "Campañas de Envío Masivo y Reiteraciones",
                 config: "Configuración de Conexión"
             };
             document.getElementById("page-title").textContent = titulos[tabId] || "Consola de Operaciones";
             
-            // Cargar historial al entrar
+            // Cargar datos frescos al entrar
             if (tabId === "historial") {
                 cargarHistorialDeNube();
+            } else if (tabId === "masivo") {
+                cargarCampanaMasiva();
             }
         });
     });
@@ -183,6 +192,14 @@ function inicializarApp() {
     if (searchHistorial) {
         searchHistorial.addEventListener("input", renderizarHistorial);
     }
+    
+    // EVENTOS CAMPAÑA MASIVA
+    const btnEjecutarCampana = document.getElementById("btn-ejecutar-campana");
+    if (btnEjecutarCampana) {
+        btnEjecutarCampana.addEventListener("click", ejecutarCampanaMasiva);
+    }
+
+    actualizarSelectCategorias();
 
     // Cargar datos iniciales
     if (validarSesion()) {
@@ -193,6 +210,19 @@ function inicializarApp() {
         renderizarTablas();
         calcularKPIs();
     }
+}
+
+function actualizarSelectCategorias() {
+    const select = document.getElementById("socio-categoria");
+    if (!select) return;
+    
+    select.innerHTML = "";
+    CATEGORIAS.forEach(cat => {
+        const option = document.createElement("option");
+        option.value = cat.categoria;
+        option.textContent = `${cat.categoria} ($${cat.montoCuota.toLocaleString('es-AR')})`;
+        select.appendChild(option);
+    });
 }
 
 /**
@@ -207,7 +237,7 @@ async function cargarSociosDeNube() {
     
     listBody.innerHTML = `
         <tr>
-            <td colspan="7" class="loading-state">
+            <td colspan="6" class="loading-state">
                 <i class="fa-solid fa-spinner fa-spin"></i> Cargando base de datos en la nube...
             </td>
         </tr>
@@ -236,6 +266,10 @@ async function cargarSociosDeNube() {
         
         if (resJson.success) {
             SOCIOS = resJson.data;
+            if (resJson.categorias) {
+                CATEGORIAS = resJson.categorias;
+            }
+            actualizarSelectCategorias();
             statusIndicator.className = "status-indicator connected";
             statusIndicator.querySelector(".status-text").textContent = "Conectado a Sheets";
             renderizarTablas();
@@ -274,6 +308,10 @@ async function probarConexionNube() {
             logBox.innerHTML += `[${new Date().toLocaleTimeString()}] Base de datos leída correctamente: ${resJson.data.length} socios identificados.\n`;
             
             SOCIOS = resJson.data;
+            if (resJson.categorias) {
+                CATEGORIAS = resJson.categorias;
+            }
+            actualizarSelectCategorias();
             document.getElementById("connection-status").className = "status-indicator connected";
             document.getElementById("connection-status").querySelector(".status-text").textContent = "Conectado a Sheets";
             
@@ -331,7 +369,7 @@ function renderizarTablas() {
     } else {
         sociosFiltrados.forEach(socio => {
             const estado = calcularEstadoPagoPeriodo(socio, PERIODO_ACTUAL);
-            const isSinFinLucro = socio.tipo === "Sin Fin de Lucro";
+            const isSinFinLucro = socio.categoria === "Exento";
             
             let badgeClass = "badge-pendiente";
             if (estado === "Pagado") badgeClass = "badge-pagado";
@@ -348,13 +386,10 @@ function renderizarTablas() {
                     <div style="font-size: 0.75rem; color: var(--text-muted);">${socio.emailContacto}</div>
                 </td>
                 <td>
-                    <span style="font-size: 0.8rem; font-weight: 500;">${socio.tipo}</span>
-                </td>
-                <td>
                     <strong style="font-size: 0.95rem;">$${socio.montoCuota.toLocaleString('es-AR')}</strong>
                 </td>
                 <td>
-                    <span style="font-family: monospace;">${socio.ultimoMesPagado || "Ninguno"}</span>
+                    <span style="font-family: monospace;">${formatearUltimoPago(socio.ultimoMesPagado)}</span>
                 </td>
                 <td>
                     <span class="badge ${badgeClass}">${isSinFinLucro && estado === 'Pagado' ? 'Exento' : estado}</span>
@@ -389,7 +424,7 @@ function renderizarTablas() {
         tr.innerHTML = `
             <td><code style="font-size:0.75rem;">${socio.id}</code></td>
             <td><strong>${socio.nombreSocio}</strong></td>
-            <td>${socio.tipo}</td>
+            <td>${socio.categoria || 'Estándar'}</td>
             <td>$${socio.montoCuota.toLocaleString('es-AR')}</td>
             <td>${socio.emailContacto}</td>
             <td>${socio.contactoNombre}</td>
@@ -413,12 +448,26 @@ function renderizarTablas() {
  * Calcula dinámicamente si un socio está pagado, pendiente o vencido para el mes seleccionado
  */
 function calcularEstadoPagoPeriodo(socio, periodoEvaluar) {
-    if (socio.tipo === "Sin Fin de Lucro" || socio.montoCuota === 0) return "Pagado";
+    if (socio.categoria === "Exento" || socio.montoCuota === 0) return "Pagado";
     if (!socio.ultimoMesPagado) return "Vencido";
+    
+    // Normalizar si viene en formato ISO o fecha completa (ej: 2026-02-01T03:00:00.000Z)
+    let ultimoPagoStr = socio.ultimoMesPagado.toString().trim();
+    if (ultimoPagoStr.includes("T")) {
+        ultimoPagoStr = ultimoPagoStr.split("T")[0]; // Queda "2026-02-01"
+    }
+    if (ultimoPagoStr.includes("-")) {
+        const partes = ultimoPagoStr.split("-");
+        if (partes.length >= 2) {
+            ultimoPagoStr = `${partes[0]}-${partes[1]}`; // Queda "2026-02"
+        }
+    }
     
     // Comparar períodos en formato YYYY-MM
     const [anioEval, mesEval] = periodoEvaluar.split("-").map(Number);
-    const [anioPago, mesPago] = socio.ultimoMesPagado.split("-").map(Number);
+    const [anioPago, mesPago] = ultimoPagoStr.split("-").map(Number);
+    
+    if (isNaN(anioPago) || isNaN(mesPago)) return "Vencido";
     
     if (anioPago > anioEval || (anioPago === anioEval && mesPago >= mesEval)) {
         return "Pagado";
@@ -445,7 +494,7 @@ function calcularKPIs() {
     let sociosMoraCount = 0;
 
     SOCIOS.forEach(socio => {
-        if (socio.tipo === "Sin Fin de Lucro") return; // No suman al balance
+        if (socio.categoria === "Exento" || socio.montoCuota === 0) return; // No suman al balance
         
         totalProyectado += socio.montoCuota;
         const estado = calcularEstadoPagoPeriodo(socio, PERIODO_ACTUAL);
@@ -464,7 +513,7 @@ function calcularKPIs() {
     const pctRecaudado = totalProyectado > 0 ? Math.round((totalRecaudado / totalProyectado) * 100) : 0;
     
     document.getElementById("kpi-total").textContent = `$${totalProyectado.toLocaleString('es-AR')}`;
-    document.getElementById("kpi-total-sub").textContent = `${SOCIOS.filter(s=>s.tipo!=='Sin Fin de Lucro').length} empresas en cuota`;
+    document.getElementById("kpi-total-sub").textContent = `${SOCIOS.filter(s => s.categoria !== "Exento" && s.montoCuota > 0).length} empresas en cuota`;
     
     document.getElementById("kpi-recaudado").textContent = `$${totalRecaudado.toLocaleString('es-AR')}`;
     document.getElementById("kpi-recaudado-pct").textContent = `${pctRecaudado}% recaudado`;
@@ -546,7 +595,6 @@ function abrirModalSocio(socioId = null) {
         if (socio) {
             document.getElementById("socio-id").value = socio.id;
             document.getElementById("socio-nombre").value = socio.nombreSocio;
-            document.getElementById("socio-tipo").value = socio.tipo;
             document.getElementById("socio-categoria").value = socio.categoria || "Estándar";
             document.getElementById("socio-email").value = socio.emailContacto;
             document.getElementById("socio-contacto-nombre").value = socio.contactoNombre;
@@ -568,7 +616,6 @@ async function guardarSocioHandler() {
     const socioData = {
         id: document.getElementById("socio-id").value,
         nombreSocio: document.getElementById("socio-nombre").value.trim(),
-        tipo: document.getElementById("socio-tipo").value,
         categoria: document.getElementById("socio-categoria").value,
         emailContacto: document.getElementById("socio-email").value.trim(),
         contactoNombre: document.getElementById("socio-contacto-nombre").value.trim(),
@@ -578,8 +625,9 @@ async function guardarSocioHandler() {
 
     if (!CONFIG.gasUrl) {
         // Guardar localmente en demo (calcular cuota local para que los KPIs no rompan)
-        const cuotasMap = { "Premium": 50000, "Estándar": 35000, "Startup": 25000, "Exento": 0 };
-        socioData.montoCuota = cuotasMap[socioData.categoria] || 0;
+        const matchedCat = CATEGORIAS.find(c => c.categoria === socioData.categoria);
+        socioData.montoCuota = matchedCat ? matchedCat.montoCuota : 0;
+        socioData.tipo = (socioData.categoria === "Exento") ? "Sin Fin de Lucro" : "Fin de Lucro";
         
         if (socioData.id) {
             const index = SOCIOS.findIndex(s => s.id === socioData.id);
@@ -1119,3 +1167,281 @@ function verHistorialSocio(nombreSocio) {
         inputSearch.dispatchEvent(new Event('input'));
     }
 }
+
+function formatearUltimoPago(ultimoMes) {
+    if (!ultimoMes) return "Ninguno";
+    let str = ultimoMes.toString().trim();
+    if (str.includes("T")) {
+        str = str.split("T")[0]; // "2026-02-01"
+    }
+    if (str.includes("-")) {
+        const partes = str.split("-");
+        if (partes.length >= 2) {
+            str = `${partes[0]}-${partes[1]}`; // "2026-02"
+        }
+    }
+    return formatearMesAnio(str);
+}
+
+let LISTA_CAMPANA_ACTUAL = []; // Almacena los socios clasificados de la campaña actual
+
+function cargarCampanaMasiva() {
+    const listBody = document.getElementById("lista-campana-body");
+    if (!listBody) return;
+    
+    listBody.innerHTML = `
+        <tr>
+            <td colspan="7" class="loading-state">
+                <i class="fa-solid fa-spinner fa-spin"></i> Cargando socios elegibles para la campaña...
+            </td>
+        </tr>
+    `;
+    
+    // Clasificar todos los socios que no sean exentos y deban dinero
+    LISTA_CAMPANA_ACTUAL = [];
+    let countFacturas = 0;
+    let countAviso1 = 0;
+    let countAviso2 = 0;
+    
+    SOCIOS.forEach(socio => {
+        // Ignorar exentos o sin cuota
+        if (socio.categoria === "Exento" || socio.montoCuota === 0) return;
+        
+        const clasificacion = clasificarSocioCampana(socio);
+        if (clasificacion && clasificacion.nivelAviso > 0) {
+            LISTA_CAMPANA_ACTUAL.push(clasificacion);
+            
+            if (clasificacion.nivelAviso === 1) countFacturas++;
+            if (clasificacion.nivelAviso === 2) countAviso1++;
+            if (clasificacion.nivelAviso === 3) countAviso2++;
+        }
+    });
+    
+    // Actualizar KPIs de campaña
+    document.getElementById("campana-total-facturas").textContent = countFacturas;
+    document.getElementById("campana-total-aviso1").textContent = countAviso1;
+    document.getElementById("campana-total-aviso2").textContent = countAviso2;
+    
+    if (LISTA_CAMPANA_ACTUAL.length === 0) {
+        listBody.innerHTML = `
+            <tr>
+                <td colspan="7" class="loading-state" style="color: var(--color-success); font-weight: 500; text-align: center; padding: 30px;">
+                    <i class="fa-solid fa-circle-check" style="font-size: 1.5rem; margin-bottom: 10px; display: block;"></i>
+                    ¡Excelente! Todos los socios están al día para el período actual (${formatearMesAnio(PERIODO_ACTUAL)}).<br>No hay notificaciones de cobro pendientes.
+                </td>
+            </tr>
+        `;
+        return;
+    }
+    
+    listBody.innerHTML = "";
+    LISTA_CAMPANA_ACTUAL.forEach((item, index) => {
+        const tr = document.createElement("tr");
+        
+        let typeBadgeClass = "badge-pendiente"; // Factura Inicial
+        if (item.nivelAviso === 2) typeBadgeClass = "badge-pendiente"; // 1° recordatorio
+        if (item.nivelAviso === 3) typeBadgeClass = "badge-vencido"; // 2° recordatorio (mora)
+        
+        const fechaAvisoStr = item.socio.ultimaNotificacion ? formatearUltimoPago(item.socio.ultimaNotificacion) : "Nunca";
+        const nivelAvisoStr = item.socio.nivelNotificacion ? item.socio.nivelNotificacion : "Ninguno";
+        
+        tr.innerHTML = `
+            <td style="text-align: center; vertical-align: middle;">
+                <input type="checkbox" class="chk-campana-socio" data-index="${index}" checked style="transform: scale(1.1); cursor: pointer;">
+            </td>
+            <td>
+                <strong style="color: var(--text-color);">${item.socio.nombreSocio}</strong><br>
+                <span style="font-size:0.72rem; color:var(--text-muted);">${item.socio.emailContacto}</span>
+            </td>
+            <td>
+                <span style="font-family: monospace;">${formatearUltimoPago(item.socio.ultimoMesPagado)}</span>
+            </td>
+            <td>
+                <span class="badge ${typeBadgeClass}" style="font-size: 0.72rem; font-weight:600;">${item.tipoNotificacion}</span><br>
+                <span style="font-size:0.68rem; color:var(--text-muted); font-style:italic; display: block; margin-top: 2px;">${item.motivo}</span>
+            </td>
+            <td>
+                <span style="font-size:0.8rem; font-weight:500;">${nivelAvisoStr}</span><br>
+                <span style="font-size:0.7rem; color:var(--text-muted);">${fechaAvisoStr}</span>
+            </td>
+            <td>
+                <strong style="font-size: 0.9rem; color: var(--text-color);">$${item.socio.montoCuota.toLocaleString('es-AR')}</strong>
+            </td>
+            <td>
+                <span style="color: var(--color-blue); font-size:0.78rem; font-weight:500;">
+                    <i class="fa-solid fa-spinner fa-spin" style="margin-right:4px;"></i> Búsqueda en lote
+                </span>
+            </td>
+        `;
+        listBody.appendChild(tr);
+    });
+    
+    // Volver a enlazar evento del select all
+    const selectAllChk = document.getElementById("chk-campana-select-all");
+    if (selectAllChk) {
+        selectAllChk.checked = true;
+        // Limpiar listeners viejos clonándolo
+        const newChk = selectAllChk.cloneNode(true);
+        selectAllChk.parentNode.replaceChild(newChk, selectAllChk);
+        
+        newChk.addEventListener("change", (e) => {
+            document.querySelectorAll(".chk-campana-socio").forEach(chk => {
+                chk.checked = e.target.checked;
+            });
+        });
+    }
+}
+
+function clasificarSocioCampana(socio) {
+    const estado = calcularEstadoPagoPeriodo(socio, PERIODO_ACTUAL);
+    if (estado === "Pagado") return null; // Ya pagaron, eximidos.
+    
+    // Si no tienen última notificación, es Factura Inicial
+    if (!socio.nivelNotificacion || socio.nivelNotificacion === "") {
+        return {
+            socio: socio,
+            nivelAviso: 1, // Factura Inicial
+            motivo: "Nueva Facturación Bimestral",
+            tipoNotificacion: "Factura Inicial"
+        };
+    }
+    
+    // Si la última notificación fue la Factura Inicial
+    if (socio.nivelNotificacion === "Factura Inicial") {
+        let diasTranscurridos = 999;
+        if (socio.ultimaNotificacion) {
+            const fechaStr = socio.ultimaNotificacion.toString().split("T")[0];
+            const partes = fechaStr.split("-");
+            if (partes.length === 3) {
+                const ultimaFecha = new Date(Number(partes[0]), Number(partes[1]) - 1, Number(partes[2]));
+                const hoy = new Date();
+                diasTranscurridos = Math.floor((hoy - ultimaFecha) / (1000 * 60 * 60 * 24));
+            }
+        }
+        
+        if (diasTranscurridos >= 15) {
+            return {
+                socio: socio,
+                nivelAviso: 2, // 1° Recordatorio
+                motivo: `Pasaron ${diasTranscurridos} días desde la Factura Inicial`,
+                tipoNotificacion: "1° Recordatorio"
+            };
+        } else {
+            // Aún no pasaron los 15 días reglamentarios
+            return {
+                socio: socio,
+                nivelAviso: 0, // En espera
+                motivo: `En espera (Aviso inicial enviado hace ${diasTranscurridos} días)`,
+                tipoNotificacion: "En Espera (15 días)"
+            };
+        }
+    }
+    
+    // Si la última notificación fue el 1° Recordatorio
+    if (socio.nivelNotificacion === "1° Recordatorio") {
+        return {
+            socio: socio,
+            nivelAviso: 3, // 2° Recordatorio
+            motivo: "Segundo aviso por deudas pendientes",
+            tipoNotificacion: "2° Recordatorio"
+        };
+    }
+    
+    // Si ya tiene el 2° Recordatorio, o se completó la secuencia
+    return {
+        socio: socio,
+        nivelAviso: 3, // Repetir 2° Recordatorio (Mora Operativa)
+        motivo: "Reiteración de Mora Crítica",
+        tipoNotificacion: "Re-Aviso de Mora"
+    };
+}
+
+async function ejecutarCampanaMasiva() {
+    const seleccionados = [];
+    document.querySelectorAll(".chk-campana-socio:checked").forEach(chk => {
+        const index = parseInt(chk.getAttribute("data-index"), 10);
+        seleccionados.push(LISTA_CAMPANA_ACTUAL[index]);
+    });
+    
+    if (seleccionados.length === 0) {
+        alert("⚠️ Por favor, selecciona al menos un socio para ejecutar la campaña.");
+        return;
+    }
+    
+    const confirmar = confirm(`¿Confirmas el envío directo de ${seleccionados.length} correos de cobranza para el período ${formatearMesAnio(PERIODO_ACTUAL)}?\n\nLos estados de notificación en Google Sheets se actualizarán de forma automática.`);
+    if (!confirmar) return;
+    
+    const btn = document.getElementById("btn-ejecutar-campana");
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Enviando correos masivos...`;
+    
+    // Preparar payload para la campaña
+    const campanaData = seleccionados.map(item => {
+        return {
+            socioId: item.socio.id,
+            periodo: PERIODO_ACTUAL,
+            nivelAviso: item.nivelAviso
+        };
+    });
+    
+    try {
+        if (!CONFIG.gasUrl) {
+            // Simulación en local
+            alert("✅ Simulación local: Se simula el envío masivo de " + seleccionados.length + " correos.");
+            // Actualizar localmente para demostración
+            seleccionados.forEach(item => {
+                const socio = SOCIOS.find(s => s.id === item.socio.id);
+                if (socio) {
+                    socio.ultimaNotificacion = new Date().toISOString().split("T")[0];
+                    socio.nivelNotificacion = item.nivelAviso === 1 ? "Factura Inicial" : (item.nivelAviso === 2 ? "1° Recordatorio" : "2° Recordatorio");
+                }
+            });
+            renderizarTablas();
+            calcularKPIs();
+            cargarCampanaMasiva();
+            
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+            return;
+        }
+        
+        const response = await fetch(CONFIG.gasUrl, {
+            method: "POST",
+            mode: "cors",
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
+            body: JSON.stringify({
+                action: "enviarCampanaMasiva",
+                campana: campanaData,
+                usuario: CURRENT_USER ? CURRENT_USER.usuario : "",
+                clave: CURRENT_USER ? CURRENT_USER.clave : ""
+            })
+        });
+        
+        const resJson = await response.json();
+        if (resJson.success) {
+            let exitosos = 0;
+            let fallidos = 0;
+            resJson.resultados.forEach(r => {
+                if (r.success) exitosos++;
+                else fallidos++;
+            });
+            
+            alert(`🎉 ¡Campaña finalizada con éxito!\n\n` +
+                  `* Correos enviados correctamente: ${exitosos}\n` +
+                  `* Envíos fallidos: ${fallidos}\n\n` +
+                  `La planilla de Google Sheets ha sido actualizada con las fechas y niveles de notificación.`);
+            
+            // Recargar
+            cargarSociosDeNube();
+        } else {
+            throw new Error(resJson.error);
+        }
+    } catch (err) {
+        alert("❌ Error al ejecutar campaña masiva en la nube: " + err.toString());
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+

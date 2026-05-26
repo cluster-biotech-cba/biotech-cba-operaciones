@@ -130,6 +130,23 @@ function doPost(e) {
         output = JSON.stringify({ success: true, data: result });
       }
     }
+    else if (action === "enviarCampanaMasiva") {
+      if (auth.user.rol !== "Administrador") {
+        output = JSON.stringify({ success: false, error: "Operación denegada. Se requiere rol de Administrador." });
+      } else {
+        const campana = postData.campana; // Array de { socioId, periodo, nivelAviso }
+        const resultados = [];
+        for (let i = 0; i < campana.length; i++) {
+          try {
+            const res = enviarCorreoMasivoSocio(campana[i].socioId, campana[i].periodo, campana[i].nivelAviso);
+            resultados.push({ socioId: campana[i].socioId, success: true, pdfAdjuntado: res.pdfAdjuntado });
+          } catch (errSocio) {
+            resultados.push({ socioId: campana[i].socioId, success: false, error: errSocio.toString() });
+          }
+        }
+        output = JSON.stringify({ success: true, resultados: resultados });
+      }
+    }
     else {
       output = JSON.stringify({ success: false, error: "Acción no reconocida en POST." });
     }
@@ -177,12 +194,21 @@ function obtenerSociosRelacionales() {
   
   if (data.length <= 0) return [];
   
+  // Configurar validaciones en el sheet para prevenir errores de tipeo
+  try {
+    configurarValidacionesEnSheets();
+  } catch (valErr) {
+    Logger.log("Error al configurar validaciones: " + valErr.toString());
+  }
+  
   // 1. ADAPTAR EL SHEET SI LE FALTAN LAS COLUMNAS DE CONTROL DE PAGO
   const headers = data[0].map(h => h.toString().trim());
   let columnModified = false;
   
   let colUltimoMesIndex = headers.map(normalizarCabecera).indexOf("ultimoMesPagado");
   let colEstadoIndex = headers.map(normalizarCabecera).indexOf("estadoActual");
+  let colUltimaNotifIndex = headers.map(normalizarCabecera).indexOf("ultimaNotificacion");
+  let colNivelNotifIndex = headers.map(normalizarCabecera).indexOf("nivelNotificacion");
   
   if (colUltimoMesIndex === -1) {
     sheet.getRange(1, headers.length + 1).setValue("Ultimo Mes Pagado").setFontWeight("bold");
@@ -192,6 +218,16 @@ function obtenerSociosRelacionales() {
   if (colEstadoIndex === -1) {
     sheet.getRange(1, headers.length + 1).setValue("Estado Actual").setFontWeight("bold");
     headers.push("Estado Actual");
+    columnModified = true;
+  }
+  if (colUltimaNotifIndex === -1) {
+    sheet.getRange(1, headers.length + 1).setValue("Ultima Notificacion").setFontWeight("bold");
+    headers.push("Ultima Notificacion");
+    columnModified = true;
+  }
+  if (colNivelNotifIndex === -1) {
+    sheet.getRange(1, headers.length + 1).setValue("Nivel Notificacion").setFontWeight("bold");
+    headers.push("Nivel Notificacion");
     columnModified = true;
   }
   
@@ -229,20 +265,24 @@ function obtenerSociosRelacionales() {
     const contacto = socio.socioContactoDeEntrega || socio.contactoNombre || socio.contacto || "Administración";
     const email = socio.mail || socio.emailContacto || socio.email || "";
     
-    let tipo = socio.tipo || "Fin de Lucro";
-    if (socio.abonaMensual !== undefined && socio.abonaMensual !== "") {
-      const abonaStr = socio.abonaMensual.toString().trim().toLowerCase();
-      tipo = (abonaStr === "si" || abonaStr === "sí") ? "Fin de Lucro" : "Sin Fin de Lucro";
-    }
-    
     const cat = socio.categoria || "Estándar";
+    const tipo = (cat.toLowerCase().trim() === "exento" || cat.toLowerCase().trim() === "exenta") ? "Sin Fin de Lucro" : "Fin de Lucro";
     const ultimoMes = socio.ultimoMesPagado || "";
     const estado = socio.estadoActual || "Pendiente";
     
     // Auto-generar un ID si no lo tiene en la planilla
     const id = socio.id || ("SOC-" + (1000 + idx));
     
-    const cuotaCalculada = catMap[cat] !== undefined ? catMap[cat] : 0;
+    // Buscar si hay cuota o monto directo ingresado en la planilla
+    let cuotaCalculada = 0;
+    if (socio.cuota !== undefined && socio.cuota !== "" && !isNaN(Number(socio.cuota.toString().replace(/[^0-9.-]/g, "")))) {
+      cuotaCalculada = Number(socio.cuota.toString().replace(/[^0-9.-]/g, ""));
+    } else if (socio.monto !== undefined && socio.monto !== "" && !isNaN(Number(socio.monto.toString().replace(/[^0-9.-]/g, "")))) {
+      cuotaCalculada = Number(socio.monto.toString().replace(/[^0-9.-]/g, ""));
+    } else {
+      cuotaCalculada = catMap[cat] !== undefined ? catMap[cat] : 0;
+    }
+
     
     return {
       ...socio, // Preservar CUIT, telefono, cargo, DNI, IVA
@@ -254,6 +294,8 @@ function obtenerSociosRelacionales() {
       categoria: cat,
       ultimoMesPagado: ultimoMes,
       estadoActual: estado,
+      ultimaNotificacion: socio.ultimaNotificacion || "",
+      nivelNotificacion: socio.nivelNotificacion || "",
       montoCuota: cuotaCalculada
     };
   });
@@ -301,9 +343,12 @@ function guardarOEditarSocio(socioData) {
     if (key === "razonSocial") return socioData.nombreSocio || "";
     if (key === "socioContactoDeEntrega") return socioData.contactoNombre || "";
     if (key === "mail") return socioData.emailContacto || "";
-    if (key === "abonaMensual") return (socioData.tipo === "Fin de Lucro" ? "SI" : "NO");
+    if (key === "tipo") return (socioData.categoria === "Exento" || socioData.categoria === "Exenta" ? "Sin Fin de Lucro" : "Fin de Lucro");
+    if (key === "abonaMensual") return (socioData.categoria === "Exento" || socioData.categoria === "Exenta" ? "NO" : "SI");
     if (key === "ultimoMesPagado") return socioData.ultimoMesPagado || "";
     if (key === "estadoActual") return socioData.estadoActual || "Pendiente";
+    if (key === "ultimaNotificacion") return socioData.ultimaNotificacion || "";
+    if (key === "nivelNotificacion") return socioData.nivelNotificacion || "";
     
     return "";
   });
@@ -661,3 +706,213 @@ function normalizarCabecera(str) {
     .map((word, index) => index === 0 ? word : word.charAt(0).toUpperCase() + word.slice(1))
     .join("");
 }
+
+function configurarValidacionesEnSheets() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheetSocios = ss.getSheetByName(HOJA_SOCIOS);
+  const sheetCategorias = ss.getSheetByName(HOJA_CATEGORIAS);
+  
+  if (!sheetSocios || !sheetCategorias) return;
+  
+  const headers = sheetSocios.getDataRange().getValues()[0].map(h => h.toString().trim());
+  const colCatIndex = headers.map(normalizarCabecera).indexOf("categoria");
+  const colEstadoIndex = headers.map(normalizarCabecera).indexOf("estadoActual");
+  const colNivelNotifIndex = headers.map(normalizarCabecera).indexOf("nivelNotificacion");
+  
+  const lastRowSocios = sheetSocios.getLastRow();
+  if (lastRowSocios < 2) return;
+  
+  // 1. Validación de Categoría: dinámicamente usando la lista de la hoja Categorias
+  if (colCatIndex !== -1) {
+    const numCategorias = sheetCategorias.getLastRow();
+    if (numCategorias > 1) {
+      const rangoCategorias = sheetCategorias.getRange(2, 1, numCategorias - 1, 1);
+      const ruleCat = SpreadsheetApp.newDataValidation()
+        .requireValueInRange(rangoCategorias, true)
+        .setAllowInvalid(false)
+        .setHelpText("Selecciona una categoria valida de la pestaña Categorias")
+        .build();
+      
+      const rangoColCat = sheetSocios.getRange(2, colCatIndex + 1, lastRowSocios - 1, 1);
+      rangoColCat.setDataValidation(ruleCat);
+    }
+  }
+  
+  // 2. Validación de Estado Actual: valores fijos Pagado, Pendiente, Vencido
+  if (colEstadoIndex !== -1) {
+    const ruleEstado = SpreadsheetApp.newDataValidation()
+      .requireValueInList(["Pagado", "Pendiente", "Vencido"], true)
+      .setAllowInvalid(false)
+      .setHelpText("Selecciona uno de los estados validos: Pagado, Pendiente o Vencido")
+      .build();
+    
+    const rangoColEstado = sheetSocios.getRange(2, colEstadoIndex + 1, lastRowSocios - 1, 1);
+    rangoColEstado.setDataValidation(ruleEstado);
+  }
+
+  // 3. Validación de Nivel Notificación: valores fijos Factura Inicial, 1° Recordatorio, 2° Recordatorio
+  if (colNivelNotifIndex !== -1) {
+    const ruleNivel = SpreadsheetApp.newDataValidation()
+      .requireValueInList(["Factura Inicial", "1° Recordatorio", "2° Recordatorio"], true)
+      .setAllowInvalid(false)
+      .setHelpText("Selecciona un nivel de notificacion valido")
+      .build();
+    
+    const rangoColNivel = sheetSocios.getRange(2, colNivelNotifIndex + 1, lastRowSocios - 1, 1);
+    rangoColNivel.setDataValidation(ruleNivel);
+  }
+}
+
+function enviarCorreoMasivoSocio(socioId, periodo, nivelAviso) {
+  const socios = obtenerSociosRelacionales();
+  const socio = socios.find(s => s.id.toString() === socioId.toString());
+  
+  if (!socio) throw new Error("Socio no encontrado");
+  if (!socio.emailContacto) throw new Error("El socio no tiene un correo de contacto configurado.");
+  
+  // 1. OBTENER PALABRAS CLAVE DEL PERÍODO BIMENSUAL Y BUSCAR PDF EN DRIVE
+  const palabrasClavePeriodo = obtenerPalabrasClaveBimestre(periodo);
+  const anioPeriodo = periodo.split("-")[0];
+  let archivoFactura = null;
+  
+  try {
+    let carpeta = null;
+    if (CARPETA_FACTURAS_ID) {
+      carpeta = DriveApp.getFolderById(CARPETA_FACTURAS_ID);
+    }
+    const nombreSocioLimpio = socio.nombreSocio.split(" ")[0].replace(/[^a-zA-Z0-9\-]/g, ""); 
+    const query = `title contains '${nombreSocioLimpio}' and title contains '${anioPeriodo}' and mimeType = 'application/pdf'`;
+    const archivosIterador = carpeta ? carpeta.searchFiles(query) : DriveApp.searchFiles(query);
+    
+    let mejorCoincidencia = null;
+    let maxCoincidenciasPalabras = 0;
+    
+    while (archivosIterador.hasNext()) {
+      const archivo = archivosIterador.next();
+      const tituloLimpio = archivo.getName().toLowerCase();
+      
+      let coincidencias = 0;
+      palabrasClavePeriodo.forEach(palabra => {
+        if (tituloLimpio.includes(palabra)) {
+          coincidencias++;
+        }
+      });
+      if (coincidencias > maxCoincidenciasPalabras) {
+        maxCoincidenciasPalabras = coincidencias;
+        mejorCoincidencia = archivo;
+      }
+    }
+    archivoFactura = mejorCoincidencia;
+  } catch (driveError) {
+    Logger.log("Error al buscar factura en Drive: " + driveError.toString());
+  }
+  
+  // 2. PREPARAR DATOS DE EMAIL
+  const datosBanco = {
+    banco: "Banco Provincia de Córdoba (BANCOR)",
+    cbu: "0200356401000012345678",
+    alias: "BIOTECH.CBA.CUOTA",
+    titular: "Clúster de Biotecnología de Córdoba"
+  };
+  
+  let asunto = "";
+  let cuerpo = "";
+  const mesAnioTexto = formatearMesAnioBimestre(periodo);
+  
+  if (nivelAviso === 1) {
+    asunto = `Clúster de Biotecnología de Córdoba - Recordatorio de Cuota Mensual [${mesAnioTexto}] - ${socio.nombreSocio}`;
+    cuerpo = `Hola ${socio.contactoNombre || "de nuestra consideración"},\n\n` +
+             `Espero que te encuentres muy bien.\n\n` +
+             `Te escribimos desde el Clúster de Biotecnología de Córdoba para hacerte llegar el recordatorio de la cuota correspondiente al bimestre **${mesAnioTexto}** por un monto de **$${socio.montoCuota.toLocaleString('es-AR')}**.\n\n` +
+             `Para tu comodidad, te recordamos los datos de transferencia bancaria de la institución:\n` +
+             `*   **Banco:** ${datosBanco.banco}\n` +
+             `*   **CBU:** ${datosBanco.cbu}\n` +
+             `*   **Alias:** ${datosBanco.alias}\n` +
+             `*   **Titular:** ${datosBanco.titular}\n\n` +
+             `Una vez realizada la transferencia, te pedimos que nos envíes el comprobante respondiendo a este correo para que podamos emitir el recibo oficial.\n\n` +
+             `Agradecemos muchísimo tu constante apoyo y participación activa para seguir potenciando la biotecnología en Córdoba.\n\n` +
+             `Saludos cordiales,\n\n` +
+             `**Sebastián Bizzi & Pablo**\n` +
+             `*Equipo de Operaciones*\n` +
+             `*Clúster de Biotecnología de Córdoba*`;
+  } 
+  else if (nivelAviso === 2) {
+    asunto = `Estado de Cuenta y Aporte Societario - Clúster de Biotecnología de Córdoba - ${socio.nombreSocio}`;
+    cuerpo = `Estimado/a ${socio.contactoNombre || "de nuestra consideración"},\n\n` +
+             `Esperamos que estés muy bien.\n\n` +
+             `Nos comunicamos para saludarte y, a la vez, realizar una actualización del estado de cuenta de **${socio.nombreSocio}** en el Clúster. Al día de la fecha, registramos un saldo pendiente de pago correspondiente al período bimensual **${mesAnioTexto}** por un total acumulado de **$${socio.montoCuota.toLocaleString('es-AR')}**.\n\n` +
+             `Como sabes, el Clúster es una asociación sin fines de lucro, y el aporte mensual de nuestros socios es el motor fundamental que sostiene nuestras actividades, eventos de vinculación, gestión de financiamiento y representatividad sectorial. Tu contribución hace que todo esto sea posible.\n\n` +
+             `Te dejamos nuevamente los datos para regularizar la situación mediante transferencia:\n` +
+             `*   **CBU:** ${datosBanco.cbu} | **Alias:** ${datosBanco.alias}\n` +
+             `*   **Titular:** ${datosBanco.titular}\n\n` +
+             `Si ya realizaste el pago en las últimas horas, por favor desestima este mensaje y envíanos el comprobante para asentar el registro.\n\n` +
+             `Quedamos a tu entera disposición ante cualquier consulta.\n\n` +
+             `Atentamente,\n\n` +
+             `**Sebastián Bizzi & Pablo**\n` +
+             `*Equipo de Operaciones*\n` +
+             `*Clúster de Biotecnología de Córdoba*`;
+  } 
+  else {
+    asunto = `Actualización y Agenda de Reunión Operativa - Clúster Biotech Cba - ${socio.nombreSocio}`;
+    cuerpo = `Estimado/a ${socio.contactoNombre || "de nuestra consideración"},\n\n` +
+             `Esperamos que te encuentres muy bien.\n\n` +
+             `Te escribimos en esta oportunidad con la intención de ponernos en contacto directo con respecto al estado societario de **${socio.nombreSocio}**. Registramos un saldo pendiente acumulado correspondiente al período bimensual **${mesAnioTexto}** por un total de **$${socio.montoCuota.toLocaleString('es-AR')}**.\n\n` +
+             `Más allá de la regularización administrativa, para nosotros es de vital importancia mantener un contacto cercano con cada uno de nuestros socios. Queremos entender el momento actual de la empresa, asegurarnos de que estén aprovechando al máximo la red de vinculación del Clúster, y conversar sobre cómo podemos apoyarlos mejor en sus desafíos presentes.\n\n` +
+             `Por esta razón, nos gustaría proponerles agendar una breve reunión virtual de 15 minutos con Sebastián Bizzi o Pablo durante la próxima semana. ¿Tendrías disponibilidad el próximo martes o jueves por la mañana?\n\n` +
+             `Quedamos a la espera de tu confirmación para coordinar el horario y enviarte el enlace de conexión.\n\n` +
+             `Un cordial saludo,\n\n` +
+             `**Sebastián Bizzi & Pablo**\n` +
+             `*Equipo de Operaciones*\n` +
+             `*Clúster de Biotecnología de Córdoba*`;
+  }
+
+  const options = {};
+  if (archivoFactura) {
+    options.attachments = [archivoFactura.getAs(MimeType.PDF)];
+  }
+  
+  // Crear borrador y enviarlo de inmediato
+  const borrador = GmailApp.createDraft(
+    socio.emailContacto, 
+    asunto, 
+    cuerpo,
+    options
+  );
+  borrador.send();
+  
+  // 3. ACTUALIZAR COLUMNAS DE NOTIFICACIÓN EN GOOGLE SHEETS
+  const sheet = obtenerOCrearHoja(HOJA_SOCIOS);
+  const dataValues = sheet.getDataRange().getValues();
+  const headers = dataValues[0];
+  
+  const colUltimaNotifIndex = headers.map(normalizarCabecera).indexOf("ultimaNotificacion");
+  const colNivelNotifIndex = headers.map(normalizarCabecera).indexOf("nivelNotificacion");
+  
+  let rowIndex = -1;
+  for (let i = 1; i < dataValues.length; i++) {
+    if (dataValues[i][0] && dataValues[i][0].toString() === socioId.toString()) {
+      rowIndex = i + 1;
+      break;
+    }
+  }
+  
+  if (rowIndex !== -1) {
+    const fechaHoy = new Date();
+    const fechaHoyTexto = Utilities.formatDate(fechaHoy, Session.getScriptTimeZone(), "yyyy-MM-dd");
+    const nivelTexto = nivelAviso === 1 ? "Factura Inicial" : (nivelAviso === 2 ? "1° Recordatorio" : "2° Recordatorio");
+    
+    if (colUltimaNotifIndex !== -1) {
+      sheet.getRange(rowIndex, colUltimaNotifIndex + 1).setValue(fechaHoyTexto);
+    }
+    if (colNivelNotifIndex !== -1) {
+      sheet.getRange(rowIndex, colNivelNotifIndex + 1).setValue(nivelTexto);
+    }
+  }
+  
+  return {
+    success: true,
+    pdfAdjuntado: !!archivoFactura
+  };
+}
+
+
