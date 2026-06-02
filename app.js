@@ -8,11 +8,8 @@
 // ESTADO GLOBAL DE LA APLICACIÓN
 const GAS_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbwzBE-ChMywFRq2T6ZK6sgRwlcBRkeQVMLpIiLPpnlgaD37LJTgmcP-XSLu18Cp0L61/exec";
 
-// Si el usuario tiene guardado el endpoint viejo en localStorage, forzar la actualización al nuevo
-const storedGasUrl = localStorage.getItem("gas_url");
-if (storedGasUrl && (storedGasUrl.includes("AKfycbxMWDgndw9SUB3pzn5qqdcv47jChgM-_KSNxD61oqdJaiAo03-pFyVi0REbQzsg5z2k") || storedGasUrl === "")) {
-    localStorage.setItem("gas_url", GAS_URL_DEFAULT);
-}
+// Forzar la actualización al nuevo endpoint v16 para todos los casos de caché local
+localStorage.setItem("gas_url", GAS_URL_DEFAULT);
 
 let CONFIG = {
     gasUrl: localStorage.getItem("gas_url") || GAS_URL_DEFAULT,
@@ -1489,13 +1486,13 @@ async function ejecutarCampanaMasiva() {
         if (!confirmNoFile) return;
     }
     
-    const confirmar = confirm(`¿Confirmas el envío directo de ${seleccionados.length} correos de la campaña "${campanaTipo === 'convocatoria_junio' ? 'Convocatoria y Regularización CD' : 'Cobranza regular'}" para el período ${formatearMesAnio(PERIODO_ACTUAL)}?\n\nLos estados de notificación en Google Sheets se actualizarán de forma automática.`);
+    const confirmar = confirm(`¿Confirmas la generación en tu Gmail de ${seleccionados.length} borradores de la campaña "${campanaTipo === 'convocatoria_junio' ? 'Convocatoria y Regularización CD' : 'Cobranza regular'}" para el período ${formatearMesAnio(PERIODO_ACTUAL)}?\n\nLos correos quedarán guardados en tu carpeta de Borradores de Gmail para tu revisión previa, y no se enviarán automáticamente.`);
     if (!confirmar) return;
     
     const btn = document.getElementById("btn-ejecutar-campana");
     const originalText = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Enviando correos masivos...`;
+    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Generando borradores...`;
     
     let adjuntoActa = null;
     if (campanaTipo === "convocatoria_junio" && fileInput && fileInput.files.length > 0) {
@@ -1573,10 +1570,10 @@ async function ejecutarCampanaMasiva() {
                 else fallidos++;
             });
             
-            alert(`🎉 ¡Campaña finalizada con éxito!\n\n` +
-                  `* Correos enviados correctamente: ${exitosos}\n` +
-                  `* Envíos fallidos: ${fallidos}\n\n` +
-                  `La planilla de Google Sheets ha sido actualizada con las fechas y niveles de notificación.`);
+            alert(`🎉 ¡Borradores generados con éxito!\n\n` +
+                  `* Borradores creados en tu Gmail: ${exitosos}\n` +
+                  `* Errores: ${fallidos}\n\n` +
+                  `Los correos han quedado guardados en tu bandeja de Borradores de Gmail para que los revises y envíes manualmente. La planilla de Google Sheets ha sido actualizada.`);
             
             // Recargar
             cargarSociosDeNube();
