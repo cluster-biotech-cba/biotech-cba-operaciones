@@ -6,9 +6,9 @@
  */
 
 // ESTADO GLOBAL DE LA APLICACIÓN
-const GAS_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbwzBE-ChMywFRq2T6ZK6sgRwlcBRkeQVMLpIiLPpnlgaD37LJTgmcP-XSLu18Cp0L61/exec";
+const GAS_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbxMWDgndw9SUB3pzn5qqdcv47jChgM-_KSNxD61oqdJaiAo03-pFyVi0REbQzsg5z2k/exec";
 
-// Forzar la actualización al nuevo endpoint v16 para todos los casos de caché local
+// Restablecer al endpoint original ya autorizado y forzar la recarga
 localStorage.setItem("gas_url", GAS_URL_DEFAULT);
 
 let CONFIG = {
