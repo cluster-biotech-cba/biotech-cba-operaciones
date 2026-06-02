@@ -539,7 +539,7 @@ function generarBorradorGmail(socioId, periodo, nivelAviso) {
              `Asimismo, los invitamos a participar de la próxima reunión de Comisión Directiva Ampliada, que se llevará a cabo el día viernes 12 de junio de 9:30 a 12:00 h. La participación de sus empresas es muy importante para seguir coordinando las acciones de vinculación de nuestro sector.\n\n` +
              `Agradecemos su atención y quedamos a disposición ante cualquier consulta.\n\n` +
              `Atentamente,\n\n` +
-             `**Equipo Técnico**\n` +
+             `**Equipo de Operaciones**\n` +
              `*Clúster de Biotecnología de Córdoba*`;
              
     const fileActa = buscarActaComisionDirectiva();
@@ -850,7 +850,7 @@ function enviarCorreoMasivoSocio(socioId, periodo, nivelAviso, campanaTipo, blob
              `Asimismo, los invitamos a participar de la próxima reunión de Comisión Directiva Ampliada, que se llevará a cabo el día viernes 12 de junio de 9:30 a 12:00 h. La participación de sus empresas es muy importante para seguir coordinando las acciones de vinculación de nuestro sector.\n\n` +
              `Agradecemos su atención y quedamos a disposición ante cualquier consulta.\n\n` +
              `Atentamente,\n\n` +
-             `**Equipo Técnico**\n` +
+             `**Equipo de Operaciones**\n` +
              `*Clúster de Biotecnología de Córdoba*`;
              
     if (blobAdjunto) {
@@ -1031,14 +1031,28 @@ function calcularSaldoAdeudadoEnScript(socio, periodo) {
   if (socio.categoria === "Exento" || !socio.montoCuota) return 0;
   if (!socio.ultimoMesPagado) return 0;
   
-  let ultimoPagoStr = socio.ultimoMesPagado.toString().trim();
-  if (ultimoPagoStr.indexOf("T") !== -1) {
-    ultimoPagoStr = ultimoPagoStr.split("T")[0];
-  }
-  if (ultimoPagoStr.indexOf("-") !== -1) {
-    const partes = ultimoPagoStr.split("-");
-    if (partes.length >= 2) {
-      ultimoPagoStr = partes[0] + "-" + partes[1];
+  let ultimoPagoStr = "";
+  if (socio.ultimoMesPagado instanceof Date && !isNaN(socio.ultimoMesPagado.getTime())) {
+    const yyyy = socio.ultimoMesPagado.getFullYear();
+    const mm = String(socio.ultimoMesPagado.getMonth() + 1).padStart(2, '0');
+    ultimoPagoStr = yyyy + "-" + mm;
+  } else {
+    ultimoPagoStr = socio.ultimoMesPagado.toString().trim();
+    if (ultimoPagoStr.indexOf("T") !== -1) {
+      ultimoPagoStr = ultimoPagoStr.split("T")[0];
+    }
+    if (ultimoPagoStr.indexOf("-") !== -1) {
+      const partes = ultimoPagoStr.split("-");
+      if (partes.length >= 2) {
+        ultimoPagoStr = partes[0] + "-" + partes[1];
+      }
+    } else {
+      const parseada = new Date(ultimoPagoStr);
+      if (!isNaN(parseada.getTime())) {
+        const yyyy = parseada.getFullYear();
+        const mm = String(parseada.getMonth() + 1).padStart(2, '0');
+        ultimoPagoStr = yyyy + "-" + mm;
+      }
     }
   }
   
