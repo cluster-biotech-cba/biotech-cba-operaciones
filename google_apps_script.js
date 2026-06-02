@@ -70,6 +70,14 @@ function doGet(e) {
         categorias: obtenerCategoriasDeSheet() 
       });
     } 
+    else if (action === "testActa") {
+      const file = buscarActaComisionDirectiva();
+      output = JSON.stringify({ 
+        success: true, 
+        fileName: file ? file.getName() : null,
+        fileId: file ? file.getId() : null
+      });
+    } 
     else if (action === "getCategorias") {
       output = JSON.stringify({ success: true, data: obtenerCategoriasDeSheet() });
     }
@@ -139,10 +147,23 @@ function doPost(e) {
         output = JSON.stringify({ success: false, error: "Operación denegada. Se requiere rol de Administrador." });
       } else {
         const campana = postData.campana; // Array de { socioId, periodo, nivelAviso }
+        const campanaTipo = postData.campanaTipo || "regular";
+        const adjuntoActa = postData.adjuntoActa; // { name, type, data } where data is base64 string
+        
+        let blobAdjunto = null;
+        if (adjuntoActa && adjuntoActa.data) {
+          try {
+            const decoded = Utilities.base64Decode(adjuntoActa.data);
+            blobAdjunto = Utilities.newBlob(decoded, adjuntoActa.type, adjuntoActa.name);
+          } catch (blobErr) {
+            Logger.log("Error al decodificar adjunto base64: " + blobErr.toString());
+          }
+        }
+        
         const resultados = [];
         for (let i = 0; i < campana.length; i++) {
           try {
-            const res = enviarCorreoMasivoSocio(campana[i].socioId, campana[i].periodo, campana[i].nivelAviso);
+            const res = enviarCorreoMasivoSocio(campana[i].socioId, campana[i].periodo, campana[i].nivelAviso, campanaTipo, blobAdjunto);
             resultados.push({ socioId: campana[i].socioId, success: true, pdfAdjuntado: res.pdfAdjuntado });
           } catch (errSocio) {
             resultados.push({ socioId: campana[i].socioId, success: false, error: errSocio.toString() });
@@ -502,8 +523,30 @@ function generarBorradorGmail(socioId, periodo, nivelAviso) {
   let asunto = "";
   let cuerpo = "";
   const mesAnioTexto = formatearMesAnioBimestre(periodo); // Formato Bimestre: "Marzo-Abril 2026"
+  const nivel = Number(nivelAviso);
+  const attachments = [];
   
-  if (nivelAviso === 1) {
+  if (nivel === 4) {
+    asunto = `Convocatoria y Actualización de Aporte Societario - Clúster de Biotecnología de Córdoba - ${socio.nombreSocio}`;
+    cuerpo = `Estimado/a ${socio.contactoNombre || "de nuestra consideración"},\n\n` +
+             `Esperamos que se encuentren muy bien.\n\n` +
+             `Les escribimos desde el Clúster de Biotecnología de Córdoba para hacerles llegar novedades institucionales y realizar una actualización del estado de cuenta de la cuota social mensual de ${socio.nombreSocio}.\n\n` +
+             `Al respecto, les recordamos que la Comisión Directiva definió que la cuota social se facturará mensualmente, realizándose el envío de las facturas de manera bimestral.\n\n` +
+             `Al día de la fecha, registramos que se encuentran pendientes de pago las cuotas mensuales del presente año (desde enero). Cada factura mensual tiene un valor de $100.000, acumulando al momento un total adeudado de $400.000.\n\n` +
+             `Les solicitamos que, en caso de no haber recibido las facturas correspondientes o si ya han realizado el pago y no lo hemos registrado, nos respondan directamente a este correo o se comuniquen a mi celular. En esta oportunidad no adjuntamos las facturas de cuota, asumiendo que ya fueron recibidas oportunamente.\n\n` +
+             `Por otra parte, adjuntamos en formato PDF el Acta de la última reunión presencial de Comisión Directiva de la institución, celebrada el pasado viernes 8 de mayo.\n\n` +
+             `Asimismo, los invitamos a participar de la próxima reunión de Comisión Directiva Ampliada, que se llevará a cabo el día viernes 12 de junio de 9:30 a 12:00 h. La participación de sus empresas es muy importante para seguir coordinando las acciones de vinculación de nuestro sector.\n\n` +
+             `Agradecemos su atención y quedamos a disposición ante cualquier consulta.\n\n` +
+             `Atentamente,\n\n` +
+             `**Equipo Técnico**\n` +
+             `*Clúster de Biotecnología de Córdoba*`;
+             
+    const fileActa = buscarActaComisionDirectiva();
+    if (fileActa) {
+      attachments.push(fileActa.getAs(MimeType.PDF));
+    }
+  }
+  else if (nivel === 1) {
     asunto = `Clúster de Biotecnología de Córdoba - Recordatorio de Cuota Mensual [${mesAnioTexto}] - ${socio.nombreSocio}`;
     cuerpo = `Hola ${socio.contactoNombre || "de nuestra consideración"},\n\n` +
              `Espero que te encuentres muy bien.\n\n` +
@@ -519,8 +562,12 @@ function generarBorradorGmail(socioId, periodo, nivelAviso) {
              `**Sebastián Bizzi & Pablo**\n` +
              `*Equipo de Operaciones*\n` +
              `*Clúster de Biotecnología de Córdoba*`;
+             
+    if (archivoFactura) {
+      attachments.push(archivoFactura.getAs(MimeType.PDF));
+    }
   } 
-  else if (nivelAviso === 2) {
+  else if (nivel === 2) {
     asunto = `Estado de Cuenta y Aporte Societario - Clúster de Biotecnología de Córdoba - ${socio.nombreSocio}`;
     cuerpo = `Estimado/a ${socio.contactoNombre || "de nuestra consideración"},\n\n` +
              `Esperamos que estés muy bien.\n\n` +
@@ -535,24 +582,32 @@ function generarBorradorGmail(socioId, periodo, nivelAviso) {
              `**Sebastián Bizzi & Pablo**\n` +
              `*Equipo de Operaciones*\n` +
              `*Clúster de Biotecnología de Córdoba*`;
+             
+    if (archivoFactura) {
+      attachments.push(archivoFactura.getAs(MimeType.PDF));
+    }
   } 
-  else if (nivelAviso === 3) {
+  else if (nivel === 3) {
     asunto = `Actualización y Agenda de Reunión Operativa - Clúster Biotech Cba - ${socio.nombreSocio}`;
     cuerpo = `Estimado/a ${socio.contactoNombre || "de nuestra consideración"},\n\n` +
              `Esperamos que te encuentres muy bien.\n\n` +
              `Te escribimos en esta oportunidad con la intención de ponernos en contacto directo con respecto al estado societario de **${socio.nombreSocio}**. Registramos un saldo pendiente acumulado correspondiente al período bimensual **${mesAnioTexto}** por un total de **$${socio.montoCuota.toLocaleString('es-AR')}**.\n\n` +
-             `Más allá de la regularización administrativa, para nosotros es de vital importancia mantener un contacto cercano con cada uno de nuestros socios. Queremos entender el momento actual de la empresa, asegurarnos de que estén aprovechando al máximo la red de vinculación del Clúster, y conversar sobre cómo podemos apoyarlos mejor en sus desafíos presentes.\n\n` +
+             `Más allá de la regularización administrativa, para nosotros es de vital importancia mantener un contact cercano con cada uno de nuestros socios. Queremos entender el momento actual de la empresa, asegurarnos de que estén aprovechando al máximo la red de vinculación del Clúster, y conversar sobre cómo podemos apoyarlos mejor en sus desafíos presentes.\n\n` +
              `Por esta razón, nos gustaría proponerles agendar una breve reunión virtual de 15 minutos con Sebastián Bizzi o Pablo durante la próxima semana. ¿Tendrías disponibilidad el próximo martes o jueves por la mañana?\n\n` +
              `Quedamos a la espera de tu confirmación para coordinar el horario y enviarte el enlace de conexión.\n\n` +
              `Un cordial saludo,\n\n` +
              `**Sebastián Bizzi & Pablo**\n` +
              `*Equipo de Operaciones*\n` +
              `*Clúster de Biotecnología de Córdoba*`;
+             
+    if (archivoFactura) {
+      attachments.push(archivoFactura.getAs(MimeType.PDF));
+    }
   }
 
   const options = {};
-  if (archivoFactura) {
-    options.attachments = [archivoFactura.getAs(MimeType.PDF)];
+  if (attachments.length > 0) {
+    options.attachments = attachments;
   }
   
   const borrador = GmailApp.createDraft(
@@ -562,11 +617,14 @@ function generarBorradorGmail(socioId, periodo, nivelAviso) {
     options
   );
   
+  const tieneAdjunto = attachments.length > 0;
+  const nombreAdjunto = tieneAdjunto ? (nivel === 4 ? "CBC ACTA DE REUNIÓN PRESENCIAL 8 de mayo 2026.pdf" : (archivoFactura ? archivoFactura.getName() : "Archivo")) : null;
+  
   return { 
     success: true, 
     borradorId: borrador.getId(), 
-    facturaAdjuntada: !!archivoFactura,
-    nombreArchivo: archivoFactura ? archivoFactura.getName() : null
+    facturaAdjuntada: tieneAdjunto,
+    nombreArchivo: nombreAdjunto
   };
 }
 
@@ -767,112 +825,154 @@ function configurarValidacionesEnSheets() {
   }
 }
 
-function enviarCorreoMasivoSocio(socioId, periodo, nivelAviso) {
+function enviarCorreoMasivoSocio(socioId, periodo, nivelAviso, campanaTipo, blobAdjunto) {
   const socios = obtenerSociosRelacionales();
   const socio = socios.find(s => s.id.toString() === socioId.toString());
   
   if (!socio) throw new Error("Socio no encontrado");
   if (!socio.emailContacto) throw new Error("El socio no tiene un correo de contacto configurado.");
   
-  // 1. OBTENER PALABRAS CLAVE DEL PERÍODO BIMENSUAL Y BUSCAR PDF EN DRIVE
-  const palabrasClavePeriodo = obtenerPalabrasClaveBimestre(periodo);
-  const anioPeriodo = periodo.split("-")[0];
-  let archivoFactura = null;
-  
-  try {
-    let carpeta = null;
-    if (CARPETA_FACTURAS_ID) {
-      carpeta = DriveApp.getFolderById(CARPETA_FACTURAS_ID);
-    }
-    const nombreSocioLimpio = socio.nombreSocio.split(" ")[0].replace(/[^a-zA-Z0-9\-]/g, ""); 
-    const query = `title contains '${nombreSocioLimpio}' and title contains '${anioPeriodo}' and mimeType = 'application/pdf'`;
-    const archivosIterador = carpeta ? carpeta.searchFiles(query) : DriveApp.searchFiles(query);
-    
-    let mejorCoincidencia = null;
-    let maxCoincidenciasPalabras = 0;
-    
-    while (archivosIterador.hasNext()) {
-      const archivo = archivosIterador.next();
-      const tituloLimpio = archivo.getName().toLowerCase();
-      
-      let coincidencias = 0;
-      palabrasClavePeriodo.forEach(palabra => {
-        if (tituloLimpio.includes(palabra)) {
-          coincidencias++;
-        }
-      });
-      if (coincidencias > maxCoincidenciasPalabras) {
-        maxCoincidenciasPalabras = coincidencias;
-        mejorCoincidencia = archivo;
-      }
-    }
-    archivoFactura = mejorCoincidencia;
-  } catch (driveError) {
-    Logger.log("Error al buscar factura en Drive: " + driveError.toString());
-  }
-  
-  // 2. PREPARAR DATOS DE EMAIL
-  const datosBanco = {
-    banco: "Banco Provincia de Córdoba (BANCOR)",
-    cbu: "0200356401000012345678",
-    alias: "BIOTECH.CBA.CUOTA",
-    titular: "Clúster de Biotecnología de Córdoba"
-  };
+  campanaTipo = campanaTipo || "regular";
+  const nivel = Number(nivelAviso);
   
   let asunto = "";
   let cuerpo = "";
-  const mesAnioTexto = formatearMesAnioBimestre(periodo);
+  const attachments = [];
   
-  if (nivelAviso === 1) {
-    asunto = `Clúster de Biotecnología de Córdoba - Recordatorio de Cuota Mensual [${mesAnioTexto}] - ${socio.nombreSocio}`;
-    cuerpo = `Hola ${socio.contactoNombre || "de nuestra consideración"},\n\n` +
-             `Espero que te encuentres muy bien.\n\n` +
-             `Te escribimos desde el Clúster de Biotecnología de Córdoba para hacerte llegar el recordatorio de la cuota correspondiente al bimestre **${mesAnioTexto}** por un monto de **$${socio.montoCuota.toLocaleString('es-AR')}**.\n\n` +
-             `Para tu comodidad, te recordamos los datos de transferencia bancaria de la institución:\n` +
-             `*   **Banco:** ${datosBanco.banco}\n` +
-             `*   **CBU:** ${datosBanco.cbu}\n` +
-             `*   **Alias:** ${datosBanco.alias}\n` +
-             `*   **Titular:** ${datosBanco.titular}\n\n` +
-             `Una vez realizada la transferencia, te pedimos que nos envíes el comprobante respondiendo a este correo para que podamos emitir el recibo oficial.\n\n` +
-             `Agradecemos muchísimo tu constante apoyo y participación activa para seguir potenciando la biotecnología en Córdoba.\n\n` +
-             `Saludos cordiales,\n\n` +
-             `**Sebastián Bizzi & Pablo**\n` +
-             `*Equipo de Operaciones*\n` +
-             `*Clúster de Biotecnología de Córdoba*`;
-  } 
-  else if (nivelAviso === 2) {
-    asunto = `Estado de Cuenta y Aporte Societario - Clúster de Biotecnología de Córdoba - ${socio.nombreSocio}`;
+  if (campanaTipo === "convocatoria_junio" || nivel === 4) {
+    asunto = `Convocatoria y Actualización de Aporte Societario - Clúster de Biotecnología de Córdoba - ${socio.nombreSocio}`;
     cuerpo = `Estimado/a ${socio.contactoNombre || "de nuestra consideración"},\n\n` +
-             `Esperamos que estés muy bien.\n\n` +
-             `Nos comunicamos para saludarte y, a la vez, realizar una actualización del estado de cuenta de **${socio.nombreSocio}** en el Clúster. Al día de la fecha, registramos un saldo pendiente de pago correspondiente al período bimensual **${mesAnioTexto}** por un total acumulado de **$${socio.montoCuota.toLocaleString('es-AR')}**.\n\n` +
-             `Como sabes, el Clúster es una asociación sin fines de lucro, y el aporte mensual de nuestros socios es el motor fundamental que sostiene nuestras actividades, eventos de vinculación, gestión de financiamiento y representatividad sectorial. Tu contribución hace que todo esto sea posible.\n\n` +
-             `Te dejamos nuevamente los datos para regularizar la situación mediante transferencia:\n` +
-             `*   **CBU:** ${datosBanco.cbu} | **Alias:** ${datosBanco.alias}\n` +
-             `*   **Titular:** ${datosBanco.titular}\n\n` +
-             `Si ya realizaste el pago en las últimas horas, por favor desestima este mensaje y envíanos el comprobante para asentar el registro.\n\n` +
-             `Quedamos a tu entera disposición ante cualquier consulta.\n\n` +
+             `Esperamos que se encuentren muy bien.\n\n` +
+             `Les escribimos desde el Clúster de Biotecnología de Córdoba para hacerles llegar novedades institucionales y realizar una actualización del estado de cuenta de la cuota social mensual de ${socio.nombreSocio}.\n\n` +
+             `Al respecto, les recordamos que la Comisión Directiva definió que la cuota social se facturará mensualmente, realizándose el envío de las facturas de manera bimestral.\n\n` +
+             `Al día de la fecha, registramos que se encuentran pendientes de pago las cuotas mensuales del presente año (desde enero). Cada factura mensual tiene un valor de $100.000, acumulando al momento un total adeudado de $400.000.\n\n` +
+             `Les solicitamos que, en caso de no haber recibido las facturas correspondientes o si ya han realizado el pago y no lo hemos registrado, nos respondan directamente a este correo o se comuniquen a mi celular. En esta oportunidad no adjuntamos las facturas de cuota, asumiendo que ya fueron recibidas oportunamente.\n\n` +
+             `Por otra parte, adjuntamos en formato PDF el Acta de la última reunión presencial de Comisión Directiva de la institución, celebrada el pasado viernes 8 de mayo.\n\n` +
+             `Asimismo, los invitamos a participar de la próxima reunión de Comisión Directiva Ampliada, que se llevará a cabo el día viernes 12 de junio de 9:30 a 12:00 h. La participación de sus empresas es muy importante para seguir coordinando las acciones de vinculación de nuestro sector.\n\n` +
+             `Agradecemos su atención y quedamos a disposición ante cualquier consulta.\n\n` +
              `Atentamente,\n\n` +
-             `**Sebastián Bizzi & Pablo**\n` +
-             `*Equipo de Operaciones*\n` +
+             `**Equipo Técnico**\n` +
              `*Clúster de Biotecnología de Córdoba*`;
-  } 
-  else {
-    asunto = `Actualización y Agenda de Reunión Operativa - Clúster Biotech Cba - ${socio.nombreSocio}`;
-    cuerpo = `Estimado/a ${socio.contactoNombre || "de nuestra consideración"},\n\n` +
-             `Esperamos que te encuentres muy bien.\n\n` +
-             `Te escribimos en esta oportunidad con la intención de ponernos en contacto directo con respecto al estado societario de **${socio.nombreSocio}**. Registramos un saldo pendiente acumulado correspondiente al período bimensual **${mesAnioTexto}** por un total de **$${socio.montoCuota.toLocaleString('es-AR')}**.\n\n` +
-             `Más allá de la regularización administrativa, para nosotros es de vital importancia mantener un contacto cercano con cada uno de nuestros socios. Queremos entender el momento actual de la empresa, asegurarnos de que estén aprovechando al máximo la red de vinculación del Clúster, y conversar sobre cómo podemos apoyarlos mejor en sus desafíos presentes.\n\n` +
-             `Por esta razón, nos gustaría proponerles agendar una breve reunión virtual de 15 minutos con Sebastián Bizzi o Pablo durante la próxima semana. ¿Tendrías disponibilidad el próximo martes o jueves por la mañana?\n\n` +
-             `Quedamos a la espera de tu confirmación para coordinar el horario y enviarte el enlace de conexión.\n\n` +
-             `Un cordial saludo,\n\n` +
-             `**Sebastián Bizzi & Pablo**\n` +
-             `*Equipo de Operaciones*\n` +
-             `*Clúster de Biotecnología de Córdoba*`;
+             
+    if (blobAdjunto) {
+      attachments.push(blobAdjunto);
+    } else {
+      const fileActa = buscarActaComisionDirectiva();
+      if (fileActa) {
+        attachments.push(fileActa.getAs(MimeType.PDF));
+      }
+    }
+  } else {
+    // 1. OBTENER PALABRAS CLAVE DEL PERÍODO BIMENSUAL Y BUSCAR PDF EN DRIVE
+    const palabrasClavePeriodo = obtenerPalabrasClaveBimestre(periodo);
+    const anioPeriodo = periodo.split("-")[0];
+    let archivoFactura = null;
+    
+    try {
+      let carpeta = null;
+      if (CARPETA_FACTURAS_ID) {
+        carpeta = DriveApp.getFolderById(CARPETA_FACTURAS_ID);
+      }
+      const nombreSocioLimpio = socio.nombreSocio.split(" ")[0].replace(/[^a-zA-Z0-9\-]/g, ""); 
+      const query = `title contains '${nombreSocioLimpio}' and title contains '${anioPeriodo}' and mimeType = 'application/pdf'`;
+      const archivosIterador = carpeta ? carpeta.searchFiles(query) : DriveApp.searchFiles(query);
+      
+      let mejorCoincidencia = null;
+      let maxCoincidenciasPalabras = 0;
+      
+      while (archivosIterador.hasNext()) {
+        const archivo = archivosIterador.next();
+        const tituloLimpio = archivo.getName().toLowerCase();
+        
+        let coincidencias = 0;
+        palabrasClavePeriodo.forEach(palabra => {
+          if (tituloLimpio.includes(palabra)) {
+            coincidencias++;
+          }
+        });
+        if (coincidencias > maxCoincidenciasPalabras) {
+          maxCoincidenciasPalabras = coincidencias;
+          mejorCoincidencia = archivo;
+        }
+      }
+      archivoFactura = mejorCoincidencia;
+    } catch (driveError) {
+      Logger.log("Error al buscar factura en Drive: " + driveError.toString());
+    }
+    
+    // 2. PREPARAR DATOS DE EMAIL
+    const datosBanco = {
+      banco: "Banco Provincia de Córdoba (BANCOR)",
+      cbu: "0200356401000012345678",
+      alias: "BIOTECH.CBA.CUOTA",
+      titular: "Clúster de Biotecnología de Córdoba"
+    };
+    
+    const mesAnioTexto = formatearMesAnioBimestre(periodo);
+    
+    if (nivel === 1) {
+      asunto = `Clúster de Biotecnología de Córdoba - Recordatorio de Cuota Mensual [${mesAnioTexto}] - ${socio.nombreSocio}`;
+      cuerpo = `Hola ${socio.contactoNombre || "de nuestra consideración"},\n\n` +
+               `Espero que te encuentres muy bien.\n\n` +
+               `Te escribimos desde el Clúster de Biotecnología de Córdoba para hacerte llegar el recordatorio de la cuota correspondiente al bimestre **${mesAnioTexto}** por un monto de **$${socio.montoCuota.toLocaleString('es-AR')}**.\n\n` +
+               `Para tu comodidad, te recordamos los datos de transferencia bancaria de la institución:\n` +
+               `*   **Banco:** ${datosBanco.banco}\n` +
+               `*   **CBU:** ${datosBanco.cbu}\n` +
+               `*   **Alias:** ${datosBanco.alias}\n` +
+               `*   **Titular:** ${datosBanco.titular}\n\n` +
+               `Una vez realizada la transferencia, te pedimos que nos envíes el comprobante respondiendo a este correo para que podamos emitir el recibo oficial.\n\n` +
+               `Agradecemos muchísimo tu constante apoyo y participación activa para seguir potenciando la biotecnología en Córdoba.\n\n` +
+               `Saludos cordiales,\n\n` +
+               `**Sebastián Bizzi & Pablo**\n` +
+               `*Equipo de Operaciones*\n` +
+               `*Clúster de Biotecnología de Córdoba*`;
+               
+      if (archivoFactura) {
+        attachments.push(archivoFactura.getAs(MimeType.PDF));
+      }
+    } 
+    else if (nivel === 2) {
+      asunto = `Estado de Cuenta y Aporte Societario - Clúster de Biotecnología de Córdoba - ${socio.nombreSocio}`;
+      cuerpo = `Estimado/a ${socio.contactoNombre || "de nuestra consideración"},\n\n` +
+               `Esperamos que estés muy bien.\n\n` +
+               `Nos comunicamos para saludarte y, a la vez, realizar una actualización del estado de cuenta de **${socio.nombreSocio}** en el Clúster. Al día de la fecha, registramos un saldo pendiente de pago correspondiente al período bimensual **${mesAnioTexto}** por un total acumulado de **$${socio.montoCuota.toLocaleString('es-AR')}**.\n\n` +
+               `Como sabes, el Clúster es una asociación sin fines de lucro, y el aporte mensual de nuestros socios es el motor fundamental que sostiene nuestras actividades, eventos de vinculación, gestión de financiamiento y representatividad sectorial. Tu contribución hace que todo esto sea posible.\n\n` +
+               `Te dejamos nuevamente los datos para regularizar la situación mediante transferencia:\n` +
+               `*   **CBU:** ${datosBanco.cbu} | **Alias:** ${datosBanco.alias}\n` +
+               `*   **Titular:** ${datosBanco.titular}\n\n` +
+               `Si ya realizaste el pago en las últimas horas, por favor desestima este mensaje y envíanos el comprobante para asentar el registro.\n\n` +
+               `Quedamos a tu entera disposición ante cualquier consulta.\n\n` +
+               `Atentamente,\n\n` +
+               `**Sebastián Bizzi & Pablo**\n` +
+               `*Equipo de Operaciones*\n` +
+               `*Clúster de Biotecnología de Córdoba*`;
+               
+      if (archivoFactura) {
+        attachments.push(archivoFactura.getAs(MimeType.PDF));
+      }
+    } 
+    else {
+      asunto = `Actualización y Agenda de Reunión Operativa - Clúster Biotech Cba - ${socio.nombreSocio}`;
+      cuerpo = `Estimado/a ${socio.contactoNombre || "de nuestra consideración"},\n\n` +
+               `Esperamos que te encuentres muy bien.\n\n` +
+               `Te escribimos en esta oportunidad con la intención de ponernos en contacto directo con respecto al estado societario de **${socio.nombreSocio}**. Registramos un saldo pendiente acumulado correspondiente al período bimensual **${mesAnioTexto}** por un total de **$${socio.montoCuota.toLocaleString('es-AR')}**.\n\n` +
+               `Más allá de la regularización administrativa, para nosotros es de vital importancia mantener un contacto cercano con cada uno de nuestros socios. Queremos entender el momento actual de la empresa, asegurarnos de que estén aprovechando al máximo la red de vinculación del Clúster, y conversar sobre cómo podemos apoyarlos mejor en sus desafíos presentes.\n\n` +
+               `Por esta razón, nos gustaría proponerles agendar una breve reunión virtual de 15 minutos con Sebastián Bizzi o Pablo durante la próxima semana. ¿Tendrías disponibilidad el próximo martes o jueves por la mañana?\n\n` +
+               `Quedamos a la espera de tu confirmación para coordinar el horario y enviarte el enlace de conexión.\n\n` +
+               `Un cordial saludo,\n\n` +
+               `**Sebastián Bizzi & Pablo**\n` +
+               `*Equipo de Operaciones*\n` +
+               `*Clúster de Biotecnología de Córdoba*`;
+               
+      if (archivoFactura) {
+        attachments.push(archivoFactura.getAs(MimeType.PDF));
+      }
+    }
   }
-
+  
   const options = {};
-  if (archivoFactura) {
-    options.attachments = [archivoFactura.getAs(MimeType.PDF)];
+  if (attachments.length > 0) {
+    options.attachments = attachments;
   }
   
   // Crear borrador y enviarlo de inmediato
@@ -903,7 +1003,7 @@ function enviarCorreoMasivoSocio(socioId, periodo, nivelAviso) {
   if (rowIndex !== -1) {
     const fechaHoy = new Date();
     const fechaHoyTexto = Utilities.formatDate(fechaHoy, Session.getScriptTimeZone(), "yyyy-MM-dd");
-    const nivelTexto = nivelAviso === 1 ? "Factura Inicial" : (nivelAviso === 2 ? "1° Recordatorio" : "2° Recordatorio");
+    const nivelTexto = campanaTipo === "convocatoria_junio" || nivel === 4 ? "2° Recordatorio" : (nivel === 1 ? "Factura Inicial" : (nivel === 2 ? "1° Recordatorio" : "2° Recordatorio"));
     
     if (colUltimaNotifIndex !== -1) {
       sheet.getRange(rowIndex, colUltimaNotifIndex + 1).setValue(fechaHoyTexto);
@@ -915,8 +1015,21 @@ function enviarCorreoMasivoSocio(socioId, periodo, nivelAviso) {
   
   return {
     success: true,
-    pdfAdjuntado: !!archivoFactura
+    pdfAdjuntado: attachments.length > 0
   };
+}
+
+function buscarActaComisionDirectiva() {
+  const query = "title contains 'ACTA' and title contains '8 de mayo' and title contains '2026' and mimeType = 'application/pdf'";
+  const archivos = DriveApp.searchFiles(query);
+  if (archivos.hasNext()) {
+    return archivos.next();
+  }
+  const exactos = DriveApp.getFilesByName("CBC ACTA DE REUNIÓN PRESENCIAL 8 de mayo 2026.pdf");
+  if (exactos.hasNext()) {
+    return exactos.next();
+  }
+  return null;
 }
 
 

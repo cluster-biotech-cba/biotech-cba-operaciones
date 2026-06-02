@@ -198,6 +198,26 @@ function inicializarApp() {
     if (btnEjecutarCampana) {
         btnEjecutarCampana.addEventListener("click", ejecutarCampanaMasiva);
     }
+    const selectCampanaTipo = document.getElementById("campana-tipo-select");
+    if (selectCampanaTipo) {
+        selectCampanaTipo.addEventListener("change", (e) => {
+            const containerAdjunto = document.getElementById("container-adjunto-campana");
+            const descPreview = document.getElementById("campana-desc-preview");
+            
+            if (e.target.value === "convocatoria_junio") {
+                if (containerAdjunto) containerAdjunto.style.display = "block";
+                if (descPreview) {
+                    descPreview.innerHTML = `<strong>Campaña Convocatoria y Regularización CD (Junio 2026):</strong> Convoca a todos los socios activos a la reunión de Comisión Directiva Ampliada del viernes 12 de junio y les recuerda el total adeudado acumulado desde enero ($400.000). Permite adjuntar el acta de la última reunión presencial en PDF.`;
+                }
+            } else {
+                if (containerAdjunto) containerAdjunto.style.display = "none";
+                if (descPreview) {
+                    descPreview.innerHTML = `<strong>Campaña Regular:</strong> Se analizan las deudas del periodo seleccionado y se clasifican a los socios en Factura Inicial, 1° o 2° Recordatorio. Busca automáticamente el PDF de la factura del socio en Google Drive.`;
+                }
+            }
+            cargarCampanaMasiva();
+        });
+    }
 
     actualizarSelectCategorias();
 
@@ -394,7 +414,7 @@ function renderizarTablas() {
                     <div style="font-size: 0.75rem; color: var(--text-muted);">${socio.emailContacto}</div>
                 </td>
                 <td>
-                    <strong style="font-size: 0.95rem;">$${socio.montoCuota.toLocaleString('es-AR')}</strong>
+                    <strong style="font-size: 0.95rem;">$${calcularSaldoAdeudado(socio, PERIODO_ACTUAL).toLocaleString('es-AR')}</strong>
                 </td>
                 <td>
                     <span style="font-family: monospace;">${formatearUltimoPago(socio.ultimoMesPagado)}</span>
@@ -487,6 +507,33 @@ function calcularEstadoPagoPeriodo(socio, periodoEvaluar) {
 }
 
 /**
+ * Calcula dinámicamente el saldo adeudado acumulado de un socio (meses concluidos impagos)
+ */
+function calcularSaldoAdeudado(socio, periodoEvaluar) {
+    if (socio.categoria === "Exento" || socio.montoCuota === 0) return 0;
+    if (!socio.ultimoMesPagado) return 0;
+    
+    let ultimoPagoStr = socio.ultimoMesPagado.toString().trim();
+    if (ultimoPagoStr.includes("T")) {
+        ultimoPagoStr = ultimoPagoStr.split("T")[0];
+    }
+    if (ultimoPagoStr.includes("-")) {
+        const partes = ultimoPagoStr.split("-");
+        if (partes.length >= 2) {
+            ultimoPagoStr = `${partes[0]}-${partes[1]}`;
+        }
+    }
+    
+    const [anioEval, mesEval] = periodoEvaluar.split("-").map(Number);
+    const [anioPago, mesPago] = ultimoPagoStr.split("-").map(Number);
+    
+    if (isNaN(anioPago) || isNaN(mesPago)) return 0;
+    
+    const mesesAdeudados = Math.max(0, (anioEval - anioPago) * 12 + (mesEval - 1 - mesPago));
+    return mesesAdeudados * socio.montoCuota;
+}
+
+/**
  * ====================================================================
  * CALCULO DE DATOS Y ESTADÍSTICAS (KPIs)
  * ====================================================================
@@ -510,10 +557,10 @@ function calcularKPIs() {
         if (estado === "Pagado") {
             totalRecaudado += socio.montoCuota;
         } else if (estado === "Pendiente") {
-            totalPendiente += socio.montoCuota;
+            totalPendiente += calcularSaldoAdeudado(socio, PERIODO_ACTUAL);
             sociosPendientesCount++;
         } else if (estado === "Vencido") {
-            totalMora += socio.montoCuota;
+            totalMora += calcularSaldoAdeudado(socio, PERIODO_ACTUAL);
             sociosMoraCount++;
         }
     });
@@ -727,7 +774,22 @@ function actualizarVistaPreviaCorreo() {
     let asunto = "";
     let cuerpo = "";
     
-    if (nivelAviso === 1) {
+    if (nivelAviso === 4) {
+        asunto = `Convocatoria y Actualización de Aporte Societario - Clúster de Biotecnología de Córdoba - ${socio.nombreSocio}`;
+        cuerpo = `Estimado/a ${socio.contactoNombre || "de nuestra consideración"},\n\n` +
+                 `Esperamos que se encuentren muy bien.\n\n` +
+                 `Les escribimos desde el Clúster de Biotecnología de Córdoba para hacerles llegar novedades institucionales y realizar una actualización del estado de cuenta de la cuota social mensual de ${socio.nombreSocio}.\n\n` +
+                 `Al respecto, les recordamos que la Comisión Directiva definió que la cuota social se facturará mensualmente, realizándose el envío de las facturas de manera bimestral.\n\n` +
+                 `Al día de la fecha, registramos que se encuentran pendientes de pago las cuotas mensuales del presente año (desde enero). Cada factura mensual tiene un valor de $100.000, acumulando al momento un total adeudado de $400.000.\n\n` +
+                 `Les solicitamos que, en caso de no haber recibido las facturas correspondientes o si ya han realizado el pago y no lo hemos registrado, nos respondan directamente a este correo o se comuniquen a mi celular. En esta oportunidad no adjuntamos las facturas de cuota, asumiendo que ya fueron recibidas oportunamente.\n\n` +
+                 `Por otra parte, adjuntamos en formato PDF el Acta de la última reunión presencial de Comisión Directiva de la institución, celebrada el pasado viernes 8 de mayo.\n\n` +
+                 `Asimismo, los invitamos a participar de la próxima reunión de Comisión Directiva Ampliada, que se llevará a cabo el día viernes 12 de junio de 9:30 a 12:00 h. La participación de sus empresas es muy importante para seguir coordinando las acciones de vinculación de nuestro sector.\n\n` +
+                 `Agradecemos su atención y quedamos a disposición ante cualquier consulta.\n\n` +
+                 `Atentamente,\n\n` +
+                 `**Equipo Técnico**\n` +
+                 `*Clúster de Biotecnología de Córdoba*`;
+    }
+    else if (nivelAviso === 1) {
         asunto = `Clúster de Biotecnología de Córdoba - Recordatorio de Cuota Mensual [${mesAnioTexto}] - ${socio.nombreSocio}`;
         cuerpo = `Hola ${socio.contactoNombre || "de nuestra consideración"},\n\n` +
                  `Espero que te encuentres muy bien.\n\n` +
@@ -759,8 +821,8 @@ function actualizarVistaPreviaCorreo() {
                  `**Sebastián Bizzi & Pablo**\n` +
                  `*Equipo de Operaciones*\n` +
                  `*Clúster de Biotecnología de Córdoba*`;
-    } 
-    else if (nivelAviso === 3) {
+     } 
+     else if (nivelAviso === 3) {
         asunto = `Actualización y Agenda de Reunión Operativa - Clúster Biotech Cba - ${socio.nombreSocio}`;
         cuerpo = `Estimado/a ${socio.contactoNombre || "de nuestra consideración"},\n\n` +
                  `Esperamos que te encuentres muy bien.\n\n` +
@@ -772,6 +834,19 @@ function actualizarVistaPreviaCorreo() {
                  `**Sebastián Bizzi & Pablo**\n` +
                  `*Equipo de Operaciones*\n` +
                  `*Clúster de Biotecnología de Córdoba*`;
+    }
+    
+    // Actualizar dinámicamente las etiquetas del adjunto
+    const cardTitle = document.querySelector(".factura-search-card h4");
+    const cardDesc = document.querySelector(".factura-search-card p.description");
+    if (cardTitle && cardDesc) {
+        if (nivelAviso === 4) {
+            cardTitle.innerHTML = `<i class="fa-solid fa-file-pdf"></i> Adjunto de Acta de CD (Google Drive)`;
+            cardDesc.textContent = "El backend buscará automáticamente en Drive el PDF del acta del 8 de mayo de 2026.";
+        } else {
+            cardTitle.innerHTML = `<i class="fa-solid fa-file-pdf"></i> Adjunto de Factura (Google Drive)`;
+            cardDesc.textContent = "El backend buscará automáticamente un PDF con el nombre del socio y el período.";
+        }
     }
     
     document.getElementById("preview-asunto").textContent = asunto;
@@ -1205,25 +1280,47 @@ function cargarCampanaMasiva() {
         </tr>
     `;
     
+    const selectCampana = document.getElementById("campana-tipo-select");
+    const campanaTipo = selectCampana ? selectCampana.value : "regular";
+    
     // Clasificar todos los socios que no sean exentos y deban dinero
     LISTA_CAMPANA_ACTUAL = [];
     let countFacturas = 0;
     let countAviso1 = 0;
     let countAviso2 = 0;
     
-    SOCIOS.forEach(socio => {
-        // Ignorar exentos o sin cuota
-        if (socio.categoria === "Exento" || socio.montoCuota === 0) return;
-        
-        const clasificacion = clasificarSocioCampana(socio);
-        if (clasificacion && clasificacion.nivelAviso > 0) {
-            LISTA_CAMPANA_ACTUAL.push(clasificacion);
+    if (campanaTipo === "convocatoria_junio") {
+        SOCIOS.forEach(socio => {
+            // Ignorar exentos o sin cuota
+            if (socio.categoria === "Exento" || socio.montoCuota === 0) return;
             
-            if (clasificacion.nivelAviso === 1) countFacturas++;
-            if (clasificacion.nivelAviso === 2) countAviso1++;
-            if (clasificacion.nivelAviso === 3) countAviso2++;
-        }
-    });
+            const saldo = calcularSaldoAdeudado(socio, PERIODO_ACTUAL);
+            if (saldo > 0) {
+                LISTA_CAMPANA_ACTUAL.push({
+                    socio: socio,
+                    nivelAviso: 4, // Convocatoria
+                    motivo: "Convocatoria y regularización de deuda",
+                    tipoNotificacion: "Convocatoria y Deuda",
+                    montoCampaña: saldo
+                });
+                countAviso2++; // Mostrar como aviso crítico en los KPIs
+            }
+        });
+    } else {
+        SOCIOS.forEach(socio => {
+            // Ignorar exentos o sin cuota
+            if (socio.categoria === "Exento" || socio.montoCuota === 0) return;
+            
+            const clasificacion = clasificarSocioCampana(socio);
+            if (clasificacion && clasificacion.nivelAviso > 0) {
+                LISTA_CAMPANA_ACTUAL.push(clasificacion);
+                
+                if (clasificacion.nivelAviso === 1) countFacturas++;
+                if (clasificacion.nivelAviso === 2) countAviso1++;
+                if (clasificacion.nivelAviso === 3) countAviso2++;
+            }
+        });
+    }
     
     // Actualizar KPIs de campaña
     document.getElementById("campana-total-facturas").textContent = countFacturas;
@@ -1248,10 +1345,11 @@ function cargarCampanaMasiva() {
         
         let typeBadgeClass = "badge-pendiente"; // Factura Inicial
         if (item.nivelAviso === 2) typeBadgeClass = "badge-pendiente"; // 1° recordatorio
-        if (item.nivelAviso === 3) typeBadgeClass = "badge-vencido"; // 2° recordatorio (mora)
+        if (item.nivelAviso === 3 || item.nivelAviso === 4) typeBadgeClass = "badge-vencido"; // 2° recordatorio / Convocatoria (mora)
         
         const fechaAvisoStr = item.socio.ultimaNotificacion ? formatearUltimoPago(item.socio.ultimaNotificacion) : "Nunca";
         const nivelAvisoStr = item.socio.nivelNotificacion ? item.socio.nivelNotificacion : "Ninguno";
+        const montoAMostrar = item.montoCampaña !== undefined ? item.montoCampaña : item.socio.montoCuota;
         
         tr.innerHTML = `
             <td style="text-align: center; vertical-align: middle;">
@@ -1273,11 +1371,11 @@ function cargarCampanaMasiva() {
                 <span style="font-size:0.7rem; color:var(--text-muted);">${fechaAvisoStr}</span>
             </td>
             <td>
-                <strong style="font-size: 0.9rem; color: var(--text-color);">$${item.socio.montoCuota.toLocaleString('es-AR')}</strong>
+                <strong style="font-size: 0.9rem; color: var(--text-color);">$${montoAMostrar.toLocaleString('es-AR')}</strong>
             </td>
             <td>
                 <span style="color: var(--color-blue); font-size:0.78rem; font-weight:500;">
-                    <i class="fa-solid fa-spinner fa-spin" style="margin-right:4px;"></i> Búsqueda en lote
+                    <i class="fa-solid fa-spinner fa-spin" style="margin-right:4px;"></i> ${campanaTipo === 'convocatoria_junio' ? 'Adjuntar Acta' : 'Búsqueda en lote'}
                 </span>
             </td>
         `;
@@ -1376,13 +1474,45 @@ async function ejecutarCampanaMasiva() {
         return;
     }
     
-    const confirmar = confirm(`¿Confirmas el envío directo de ${seleccionados.length} correos de cobranza para el período ${formatearMesAnio(PERIODO_ACTUAL)}?\n\nLos estados de notificación en Google Sheets se actualizarán de forma automática.`);
+    const selectCampana = document.getElementById("campana-tipo-select");
+    const campanaTipo = selectCampana ? selectCampana.value : "regular";
+    const fileInput = document.getElementById("campana-file-adjunto");
+    
+    if (campanaTipo === "convocatoria_junio" && fileInput && fileInput.files.length === 0) {
+        const confirmNoFile = confirm("⚠️ No has seleccionado ningún archivo PDF de Acta.\n\n¿Deseas continuar? El sistema intentará buscar el acta automáticamente en tu Google Drive.");
+        if (!confirmNoFile) return;
+    }
+    
+    const confirmar = confirm(`¿Confirmas el envío directo de ${seleccionados.length} correos de la campaña "${campanaTipo === 'convocatoria_junio' ? 'Convocatoria y Regularización CD' : 'Cobranza regular'}" para el período ${formatearMesAnio(PERIODO_ACTUAL)}?\n\nLos estados de notificación en Google Sheets se actualizarán de forma automática.`);
     if (!confirmar) return;
     
     const btn = document.getElementById("btn-ejecutar-campana");
     const originalText = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Enviando correos masivos...`;
+    
+    let adjuntoActa = null;
+    if (campanaTipo === "convocatoria_junio" && fileInput && fileInput.files.length > 0) {
+        const file = fileInput.files[0];
+        try {
+            adjuntoActa = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const base64Data = reader.result.split(',')[1];
+                    resolve({
+                        name: file.name,
+                        type: file.type,
+                        data: base64Data
+                    });
+                };
+                reader.onerror = error => reject(error);
+                reader.readAsDataURL(file);
+            });
+        } catch (fileErr) {
+            console.error("Error al leer el archivo adjunto:", fileErr);
+            alert("❌ Error al leer el archivo PDF local. Se intentará buscar en Google Drive.");
+        }
+    }
     
     // Preparar payload para la campaña
     const campanaData = seleccionados.map(item => {
@@ -1402,7 +1532,7 @@ async function ejecutarCampanaMasiva() {
                 const socio = SOCIOS.find(s => s.id === item.socio.id);
                 if (socio) {
                     socio.ultimaNotificacion = new Date().toISOString().split("T")[0];
-                    socio.nivelNotificacion = item.nivelAviso === 1 ? "Factura Inicial" : (item.nivelAviso === 2 ? "1° Recordatorio" : "2° Recordatorio");
+                    socio.nivelNotificacion = item.nivelAviso === 4 ? "2° Recordatorio" : (item.nivelAviso === 1 ? "Factura Inicial" : (item.nivelAviso === 2 ? "1° Recordatorio" : "2° Recordatorio"));
                 }
             });
             renderizarTablas();
@@ -1421,6 +1551,8 @@ async function ejecutarCampanaMasiva() {
             body: JSON.stringify({
                 action: "enviarCampanaMasiva",
                 campana: campanaData,
+                campanaTipo: campanaTipo,
+                adjuntoActa: adjuntoActa,
                 usuario: CURRENT_USER ? CURRENT_USER.usuario : "",
                 clave: CURRENT_USER ? CURRENT_USER.clave : ""
             })

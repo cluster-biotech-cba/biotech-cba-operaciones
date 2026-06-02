@@ -195,7 +195,7 @@
                             <tr>
                                 <th>Socio / Razón Social</th>
                                 <th>Contacto</th>
-                                <th>Cuota</th>
+                                <th>Saldo Adeudado</th>
                                 <th>Último Mes Pago</th>
                                 <th>Estado</th>
                                 <th>Acciones Rápidas</th>
@@ -283,7 +283,7 @@
             
             <!-- PANEL: ASISTENTE DE ENVÍO MASIVO -->
             <section id="tab-masivo" class="tab-panel">
-                <div class="header-actions">
+                <div class="header-actions" style="margin-bottom: 20px;">
                     <div>
                         <h3>Asistente de Envío Masivo</h3>
                         <p class="description">Automatiza las campañas de cobro y recordatorios bimestrales para todos tus socios en un solo clic.</p>
@@ -291,6 +291,26 @@
                     <button class="btn btn-primary" id="btn-ejecutar-campana" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">
                         <i class="fa-solid fa-paper-plane"></i> Enviar Correos Aprobados
                     </button>
+                </div>
+                
+                <!-- Selección de Campaña y Adjuntos -->
+                <div class="card mt-3" style="padding: 15px; border-left: 4px solid var(--color-blue); margin-bottom: 20px;">
+                    <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-end;">
+                        <div class="form-group" style="flex: 1; min-width: 250px; margin-bottom: 0;">
+                            <label for="campana-tipo-select" style="font-weight: 600; display: block; margin-bottom: 5px;">Seleccione la Campaña a Ejecutar:</label>
+                            <select id="campana-tipo-select" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-card); color: var(--text-color); font-weight: 500;">
+                                <option value="regular">Campaña Bimestral Regular (Facturas Automáticas en Drive)</option>
+                                <option value="convocatoria_junio">Convocatoria y Regularización CD (Junio 2026)</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="container-adjunto-campana" style="flex: 1; min-width: 250px; margin-bottom: 0; display: none;">
+                            <label for="campana-file-adjunto" style="font-weight: 600; display: block; margin-bottom: 5px;">Adjuntar Acta CD (PDF):</label>
+                            <input type="file" id="campana-file-adjunto" accept="application/pdf" style="width: 100%; padding: 6px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-card); color: var(--text-color);">
+                        </div>
+                    </div>
+                    <div id="campana-desc-preview" style="font-size: 0.78rem; color: var(--text-muted); margin-top: 10px; line-height: 1.4;">
+                        <strong>Campaña Regular:</strong> Se analizan las deudas del periodo seleccionado y se clasifican a los socios en Factura Inicial, 1° o 2° Recordatorio. Busca automáticamente el PDF de la factura del socio en Google Drive.
+                    </div>
                 </div>
                 
                 <!-- KPIs de Campaña -->
@@ -404,8 +424,9 @@
                         <label for="select-aviso-nivel">Tipo de Mensaje / Estado de Mora:</label>
                         <select id="select-aviso-nivel">
                             <option value="1">1° Aviso: Recordatorio Amistoso (Cuota al día)</option>
-                            <option value="2">2° Aviso: Recordatorio Institucional (Vencido)</option>
-                            <option value="3">3° Aviso: Contacto Directo / Llamada (Deuda Crítica)</option>
+                            <option value="2">2° Recordatorio: Aporte Societario (Vencido)</option>
+                            <option value="3">3° Recordatorio: Contacto Directo / Agenda (Deuda Crítica)</option>
+                            <option value="4">Convocatoria y Deuda (Junio 2026)</option>
                         </select>
                     </div>
 
