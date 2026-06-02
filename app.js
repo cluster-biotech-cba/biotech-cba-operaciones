@@ -6,7 +6,13 @@
  */
 
 // ESTADO GLOBAL DE LA APLICACIÓN
-const GAS_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbxMWDgndw9SUB3pzn5qqdcv47jChgM-_KSNxD61oqdJaiAo03-pFyVi0REbQzsg5z2k/exec";
+const GAS_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbwzBE-ChMywFRq2T6ZK6sgRwlcBRkeQVMLpIiLPpnlgaD37LJTgmcP-XSLu18Cp0L61/exec";
+
+// Si el usuario tiene guardado el endpoint viejo en localStorage, forzar la actualización al nuevo
+const storedGasUrl = localStorage.getItem("gas_url");
+if (storedGasUrl && (storedGasUrl.includes("AKfycbxMWDgndw9SUB3pzn5qqdcv47jChgM-_KSNxD61oqdJaiAo03-pFyVi0REbQzsg5z2k") || storedGasUrl === "")) {
+    localStorage.setItem("gas_url", GAS_URL_DEFAULT);
+}
 
 let CONFIG = {
     gasUrl: localStorage.getItem("gas_url") || GAS_URL_DEFAULT,
